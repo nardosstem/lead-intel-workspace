@@ -1,0 +1,52 @@
+# IMPLEMENTATION CONTRACT — this is not a Python dependency file.
+# npm package.json/package-lock.json are the dependency source of truth.
+
+RUNTIME
+- Use Node.js 20.9+ and npm.
+- Use the Next.js App Router, React, and strict TypeScript; do not add a Pages Router.
+- Read the relevant installed Next.js guide in node_modules/next/dist/docs before using framework APIs.
+- Keep source under src and preserve the @/* import alias.
+
+ARCHITECTURE
+- Keep src/app limited to routes, layouts, metadata, and framework boundaries.
+- Put domain behavior in src/features/<feature>; expose a deliberate public index.ts.
+- Put reusable application components in src/components/shared and shadcn primitives in src/components/ui.
+- Keep secrets, database code, privileged Supabase code, and AI providers in server-only modules.
+- Do not add microservices, queues, or a second state/data framework without an accepted architecture decision.
+
+TYPES AND VALIDATION
+- Maintain TypeScript strict mode; do not use any, ts-ignore, or unsafe casts to bypass errors.
+- Validate every untrusted boundary with Zod: forms, route inputs, external APIs, AI output, and environment variables.
+- Model expected failures as typed return values. Reserve thrown exceptions for unexpected failures.
+
+DATABASE AND TENANCY
+- Drizzle schema is authoritative for public application tables; commit generated SQL and metadata together.
+- Never let Drizzle create, modify, or delete Supabase-managed auth/storage schemas.
+- Scope every tenant query and mutation by organization; never trust a client-supplied organization ID alone.
+- Enable and review RLS before exposing a table through the Supabase browser client.
+- Write an audit_logs record in the same transaction as each material mutation.
+- Review generated migrations for data loss and RLS changes before applying them.
+
+AUTH AND STORAGE
+- Verify identity on the server with Supabase Auth for every protected operation.
+- Treat src/proxy.ts as session refresh/optimistic routing only, never as the sole authorization layer.
+- Authorize organization membership again inside Server Functions, Route Handlers, and services.
+- Use private Storage buckets by default and organization-scoped object paths; validate file type and size.
+- Never expose DATABASE_URL, service-role keys, provider keys, or tokens with NEXT_PUBLIC_ names.
+
+AI
+- Feature and domain code may depend on IAIProvider only, never ClaudeMCPProvider or an SDK directly.
+- Construct providers in a composition root and inject them into services.
+- Validate structured output at runtime and attach organization/actor/trace context to calls.
+- Minimize personal data sent to providers and never include credentials or unrelated tenant data.
+
+UI AND ACCESSIBILITY
+- Reuse shadcn/ui and shared components before creating one-off primitives.
+- Support light/dark themes, keyboard navigation, visible focus, semantic labels, loading, empty, and error states.
+- Keep Server Components as the default and make the smallest practical interactive client boundary.
+
+QUALITY GATE
+- Add tests for new domain behavior, authorization boundaries, and important failure paths.
+- Run npm run lint, npm run typecheck, and npm run build before considering work complete.
+- Keep the repository free of generated demo assets, local secrets, build output, logs, and unused dependencies.
+- Update README.md and .env.example whenever setup, architecture, commands, or configuration changes.
