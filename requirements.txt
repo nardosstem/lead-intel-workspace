@@ -50,3 +50,13 @@ QUALITY GATE
 - Run npm run lint, npm run typecheck, and npm run build before considering work complete.
 - Keep the repository free of generated demo assets, local secrets, build output, logs, and unused dependencies.
 - Update README.md and .env.example whenever setup, architecture, commands, or configuration changes.
+
+LEAD WORKBENCH
+- Keep companies, contacts, and pipeline queries scoped to the authenticated organization.
+- Pipeline rows must target exactly one company or contact and use the shared stage enum.
+- Create/update/delete mutations must run through the audited server-action transaction helper.
+- Preserve audit trigger coverage when changing lead tables or adding cascaded relationships.
+- Keep search/filter state client-side and table data serializable from Server Components.
+- Add loading, empty, validation, and error states to every lead view and form.
+- Route AI actions through IAIProvider and include organization, actor, and trace context.
+- Never expose raw MCP endpoints, provider credentials, or prompt contents in client bundles.

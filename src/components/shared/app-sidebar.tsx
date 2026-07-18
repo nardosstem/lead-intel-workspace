@@ -1,8 +1,8 @@
 "use client";
 
-import { LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import { History, LayoutDashboard, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import {
   Sidebar,
@@ -22,15 +22,17 @@ const navigation = [
   { label: "Overview", href: "/", icon: LayoutDashboard, enabled: true },
   {
     label: "Lead workbench",
-    href: "/lead-workbench",
+    href: "/leads",
     icon: Sparkles,
-    enabled: false,
+    enabled: true,
   },
-  { label: "Settings", href: "/settings", icon: Settings, enabled: false },
+  { label: "Audit history", href: "/leads?view=audit", icon: History, enabled: true },
+  { label: "Settings", href: "/leads?view=settings", icon: Settings, enabled: true },
 ] as const;
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   return (
     <Sidebar collapsible="icon">
@@ -56,7 +58,11 @@ export function AppSidebar() {
                   {item.enabled ? (
                     <SidebarMenuButton
                       render={<Link href={item.href} />}
-                      isActive={pathname === item.href}
+                      isActive={
+                        pathname === item.href.split("?")[0] &&
+                        (!item.href.includes("?") ||
+                          searchParams.get("view") === item.href.split("view=")[1])
+                      }
                       tooltip={item.label}
                     >
                       <item.icon aria-hidden="true" />
@@ -81,7 +87,7 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t">
         <p className="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-          Foundation phase
+          Lead workbench
         </p>
       </SidebarFooter>
       <SidebarRail />

@@ -1,6 +1,8 @@
 import {
+  check,
   index,
   jsonb,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -8,9 +10,25 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export type AuditChanges = Readonly<Record<string, unknown>>;
 export type AuditMetadata = Readonly<Record<string, unknown>>;
+
+export const pipelineStages = [
+  "new",
+  "researching",
+  "qualified",
+  "contacted",
+  "replied",
+  "meeting",
+  "won",
+  "lost",
+] as const;
+
+export const pipelineStageEnum = pgEnum("pipeline_stage", pipelineStages);
+
+export type PipelineStage = (typeof pipelineStages)[number];
 
 export const organizations = pgTable(
   "organizations",
@@ -90,9 +108,119 @@ export const auditLogs = pgTable(
   ],
 ).enableRLS();
 
+export const companies = pgTable(
+  "companies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 200 }).notNull(),
+    website: varchar("website", { length: 500 }),
+    industry: varchar("industry", { length: 120 }),
+    size: varchar("size", { length: 80 }),
+    location: varchar("location", { length: 160 }),
+    status: varchar("status", { length: 40 }).notNull().default("prospect"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("companies_organization_id_idx").on(table.organizationId),
+    index("companies_status_idx").on(table.organizationId, table.status),
+    index("companies_created_at_idx").on(table.organizationId, table.createdAt),
+  ],
+).enableRLS();
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 160 }).notNull(),
+    title: varchar("title", { length: 160 }),
+    email: varchar("email", { length: 320 }),
+    linkedin: varchar("linkedin", { length: 500 }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("contacts_organization_id_idx").on(table.organizationId),
+    index("contacts_company_id_idx").on(table.companyId),
+    index("contacts_email_idx").on(table.organizationId, table.email),
+  ],
+).enableRLS();
+
+/** One current pipeline record may target either a company or a contact. */
+export const pipeline = pgTable(
+  "pipeline",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").references(() => companies.id, {
+      onDelete: "cascade",
+    }),
+    contactId: uuid("contact_id").references(() => contacts.id, {
+      onDelete: "cascade",
+    }),
+    stage: pipelineStageEnum("stage").notNull().default("new"),
+    nextFollowUpAt: timestamp("next_follow_up_at", { withTimezone: true }),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "pipeline_single_target_check",
+      sql`num_nonnulls(${table.companyId}, ${table.contactId}) = 1`,
+    ),
+    index("pipeline_organization_stage_idx").on(
+      table.organizationId,
+      table.stage,
+    ),
+    index("pipeline_company_id_idx").on(table.companyId),
+    index("pipeline_contact_id_idx").on(table.contactId),
+    index("pipeline_follow_up_idx").on(
+      table.organizationId,
+      table.nextFollowUpAt,
+    ),
+    uniqueIndex("pipeline_company_uidx").on(table.companyId),
+    uniqueIndex("pipeline_contact_uidx").on(table.contactId),
+  ],
+).enableRLS();
+
 export type Organization = typeof organizations.$inferSelect;
 export type NewOrganization = typeof organizations.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
+export type Company = typeof companies.$inferSelect;
+export type NewCompany = typeof companies.$inferInsert;
+export type Contact = typeof contacts.$inferSelect;
+export type NewContact = typeof contacts.$inferInsert;
+export type Pipeline = typeof pipeline.$inferSelect;
+export type NewPipeline = typeof pipeline.$inferInsert;

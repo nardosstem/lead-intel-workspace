@@ -38,8 +38,8 @@ export default function HomePage() {
           Lead intelligence, ready to build.
         </h1>
         <p className="max-w-2xl text-pretty text-muted-foreground">
-          The application shell and shared infrastructure are in place. Domain
-          features intentionally begin in the next implementation phase.
+          The application shell and shared infrastructure are in place. Open
+          the Lead workbench to research, qualify, and move opportunities.
         </p>
       </section>
 

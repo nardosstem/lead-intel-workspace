@@ -1,9 +1,9 @@
 # Lead Intel Workspace
 
-A production-oriented monolithic Next.js foundation for replacing fragmented
-lead research workflows. This repository currently contains infrastructure and
-shared application architecture only; domain feature implementation has not
-started.
+A production-oriented monolithic Next.js application for replacing fragmented
+lead research workflows. The shared foundation and first Lead Intelligence
+Workbench module are implemented; additional domain modules can follow the
+same feature boundary.
 
 ## Stack
 
@@ -36,6 +36,7 @@ before exercising Supabase or database-backed paths:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 DATABASE_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres?sslmode=require
+CLAUDE_MCP_ENDPOINT=http://localhost:8787/mcp/tools
 ```
 
 Use a direct connection for migrations. At runtime, Supabase's session pooler
@@ -55,6 +56,7 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:generate` | Generate SQL after a Drizzle schema change |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Inspect the configured database |
+| `npm run db:seed:leads` | Insert deterministic demo companies, contacts, and pipeline rows |
 
 ## Architecture
 
@@ -64,7 +66,7 @@ src/
 ├── components/
 │   ├── shared/             # App shell, layouts, theme, shared states
 │   └── ui/                 # shadcn/ui design-system primitives
-├── features/               # Domain modules (lead-workbench comes next)
+├── features/               # Domain modules (lead-workbench)
 ├── hooks/                  # Cross-cutting client hooks
 ├── lib/
 │   ├── ai/                 # Provider contract, factory, adapters
@@ -80,6 +82,11 @@ app routes -> feature modules -> shared interfaces/infrastructure
 shared UI  -> ui primitives
 features   -> IAIProvider (never a concrete AI provider)
 ```
+
+The first domain module is `src/features/lead-workbench`. Its server actions,
+validation, CSV parser, AI actions, tables, forms, pipeline board, audit view,
+and settings view are kept inside that feature boundary. `src/app/leads` is a
+thin route composition layer.
 
 Route files compose features and own Next.js concerns. Domain validation,
 queries, mutations, services, and feature-specific UI live under a single
@@ -97,6 +104,9 @@ internals.
 - `users`: application profiles keyed by the corresponding Supabase Auth UUID.
 - `audit_logs`: append-oriented records of actor, action, entity, changes, and
   metadata for “who changed what.”
+- `companies`, `contacts`, and `pipeline`: organization-scoped lead records;
+  pipeline uses one current record per company or contact and an enum-backed
+  stage from New through Won/Lost.
 
 The initial migration adds the cross-schema foreign key to
 `auth.users(id)` manually. This keeps Supabase's managed `auth` schema outside
@@ -115,6 +125,15 @@ Change the schema with this workflow:
 
 The Drizzle connection is server-only, typed to the full schema, reused during
 development hot reloads, and configured for Supabase poolers.
+
+Lead mutations set transaction-local actor and organization context. Database
+triggers on companies, contacts, and pipeline automatically append before/after
+JSON snapshots to `audit_logs`, including cascaded deletes.
+
+The seed script uses deterministic UUIDs and is safe to rerun with
+`npm run db:seed:leads`. It requires a migrated Supabase database. Because the
+seed data belongs to a demo organization, create or map a Supabase Auth profile
+to that organization before expecting it to appear for a signed-in user.
 
 ### Authentication and storage
 
@@ -136,11 +155,13 @@ authorize object paths by organization.
 The root layout provides a responsive persistent shadcn sidebar, sticky header,
 system-aware light/dark theme, tooltip provider, and global toast host. Next.js
 `loading.tsx`, `error.tsx`, and `global-error.tsx` provide shared pending and
-failure states. Feature navigation remains disabled until its routes exist.
+failure states. The Lead workbench, audit history, and settings views are
+available from the persistent navigation.
 
-Installed design-system primitives include Button, Input, Table, Dialog,
-Dropdown Menu, Card, Sidebar, Skeleton, Tooltip, Sheet, Separator, and Sonner
-toast. Reuse these primitives before introducing one-off controls.
+Installed design-system primitives include Button, Input, Textarea, Select,
+Table, Dialog, Dropdown Menu, Card, Sidebar, Skeleton, Tooltip, Sheet,
+Separator, and Sonner toast. Reuse these primitives before introducing
+one-off controls.
 
 ### AI provider abstraction
 
@@ -167,6 +188,16 @@ const service = new LeadResearchService(provider); // accepts IAIProvider
 
 Provider calls must execute on the server. Include organization, actor, and
 trace context; do not send secrets or unnecessary personal data in prompts.
+
+### Lead workbench behavior
+
+`/leads` provides dashboard KPIs, an eight-stage horizontally scrollable
+pipeline, responsive searchable/filterable company and contact tables, manual
+forms, CSV import, detail dialogs, audit history, and workspace preferences.
+The UI is empty-state safe when no authenticated organization profile exists;
+mutations and AI actions return actionable errors until the user is signed in.
+Set `CLAUDE_MCP_ENDPOINT` to an HTTP bridge that accepts `{ name, arguments }`
+and returns the response envelope expected by `ClaudeMCPProvider`.
 
 ## Adding a feature
 
@@ -197,6 +228,6 @@ Then:
 
 ## Current scope
 
-This foundation intentionally has no lead-workbench domain behavior, sign-in
-experience, billing, or production MCP transport. Those belong to subsequent,
-separately reviewed feature work.
+The initial lead-workbench module is included under `src/features/lead-workbench`
+and is intentionally focused on lead intelligence workflows. Sign-in UX,
+billing, and a production MCP deployment remain separately reviewed concerns.
