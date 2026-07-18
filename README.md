@@ -253,6 +253,8 @@ Then:
   audit records.
 - Apollo, Firecrawl, and Inngest credentials are server-only and never use
   `NEXT_PUBLIC_` names.
+- `package.json` overrides Next.js's nested PostCSS dependency to the patched
+  8.5.19 release; re-check this override when upgrading Next.js.
 - `INNGEST_DEV=1` is for local development only; deployed handlers require
   `INNGEST_SIGNING_KEY` so webhook requests are authenticated.
 - Expected errors are modeled as typed results; unexpected failures reach the
