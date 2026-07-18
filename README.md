@@ -255,6 +255,9 @@ Then:
   `NEXT_PUBLIC_` names.
 - `package.json` overrides Next.js's nested PostCSS dependency to the patched
   8.5.19 release; re-check this override when upgrading Next.js.
+- The deployable audit gate is `npm audit --omit=dev`; a separate moderate
+  development-only esbuild advisory remains transitive through Drizzle Kit
+  0.31.10, whose automated fix is a breaking downgrade.
 - `INNGEST_DEV=1` is for local development only; deployed handlers require
   `INNGEST_SIGNING_KEY` so webhook requests are authenticated.
 - Expected errors are modeled as typed results; unexpected failures reach the
