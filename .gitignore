@@ -13,6 +13,13 @@
 /test-results/
 /playwright-report/
 
+# Tool caches and static exports
+.eslintcache
+/.cache/
+/.turbo/
+/.parcel-cache/
+/storybook-static/
+
 # Next.js and production output
 /.next/
 /out/
