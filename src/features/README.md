@@ -7,4 +7,7 @@ thin composition points.
 
 The first module, `lead-workbench`, owns the companies, contacts, pipeline,
 CSV import, AI actions, audit view, and settings view. Keep new lead-domain
-behavior inside that folder and expose only intentional public exports.
+behavior inside that folder and expose only intentional public exports. Its
+Quick Add Domain action enqueues the durable Apollo/Firecrawl/AI workflow in
+`src/inngest`; the ingestion workflow keeps long-running provider work out of
+the Server Action request path.

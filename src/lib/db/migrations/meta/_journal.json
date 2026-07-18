@@ -29,6 +29,20 @@
       "when": 1784350227409,
       "tag": "0003_closed_chamber",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784351414636,
+      "tag": "0004_futuristic_stingray",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784351970843,
+      "tag": "0005_majestic_nicolaos",
+      "breakpoints": true
     }
   ]
 }

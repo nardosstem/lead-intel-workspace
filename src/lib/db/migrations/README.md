@@ -13,3 +13,12 @@ Migration `0003_closed_chamber.sql` adds durable enrichment state to companies:
 processing/complete status, ICP score, pain points, outreach draft, and the
 completion timestamp. Raw Firecrawl Markdown remains in the workflow step
 payload rather than being stored in audit snapshots.
+
+Migration `0004_futuristic_stingray.sql` adds a canonical company domain and
+an organization-scoped unique index for ingestion idempotency. It backfills
+unambiguous existing HTTP(S) domains; ambiguous duplicates remain nullable for
+manual review before a future dedupe migration.
+
+Migration `0005_*.sql` stores Apollo person IDs on contacts with an
+organization-scoped unique index so provider retries do not rely only on
+mutable email or name heuristics.

@@ -28,6 +28,7 @@ export function toCompanyRecord(company: typeof companies.$inferSelect): Company
   return {
     id: company.id,
     name: company.name,
+    domain: company.domain,
     website: company.website,
     industry: company.industry,
     size: company.size,
@@ -110,7 +111,14 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
     db
       .select({ contact: contacts, companyName: companies.name })
       .from(contacts)
-      .innerJoin(companies, eq(contacts.companyId, companies.id))
+      .innerJoin(
+        companies,
+        and(
+          eq(contacts.companyId, companies.id),
+          eq(contacts.organizationId, companies.organizationId),
+          eq(companies.organizationId, context.organizationId),
+        ),
+      )
       .where(eq(contacts.organizationId, context.organizationId))
       .orderBy(desc(contacts.createdAt)),
     db
@@ -120,8 +128,22 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
         contactName: contacts.name,
       })
       .from(pipeline)
-      .leftJoin(companies, eq(pipeline.companyId, companies.id))
-      .leftJoin(contacts, eq(pipeline.contactId, contacts.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(pipeline.companyId, companies.id),
+          eq(pipeline.organizationId, companies.organizationId),
+          eq(companies.organizationId, context.organizationId),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(pipeline.contactId, contacts.id),
+          eq(pipeline.organizationId, contacts.organizationId),
+          eq(contacts.organizationId, context.organizationId),
+        ),
+      )
       .where(eq(pipeline.organizationId, context.organizationId))
       .orderBy(desc(pipeline.updatedAt)),
     db

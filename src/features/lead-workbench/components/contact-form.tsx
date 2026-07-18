@@ -17,6 +17,10 @@ import { toast } from "sonner";
 import { createContact, updateContact } from "../server/actions";
 import type { ActionResult, CompanyRecord, ContactRecord } from "../types";
 
+function FieldError({ message }: Readonly<{ message?: string }>) {
+  return message ? <p className="text-xs text-destructive">{message}</p> : null;
+}
+
 export function ContactForm({
   companies,
   initial,
@@ -30,10 +34,13 @@ export function ContactForm({
 }>) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    setError(null);
+    setFieldErrors({});
     const input = {
       ...(initial ? { id: initial.id } : {}),
       companyId: form.get("companyId"),
@@ -53,6 +60,7 @@ export function ContactForm({
         onSaved(result.data);
       } else {
         setError(result.error);
+        setFieldErrors(result.fieldErrors ?? {});
       }
     });
   }
@@ -87,26 +95,32 @@ export function ContactForm({
               ))}
             </SelectContent>
           </Select>
+          <FieldError message={fieldErrors.companyId?.[0]} />
         </label>
         <label className="space-y-1.5 text-sm sm:col-span-2">
           <span className="font-medium">Name</span>
           <Input name="name" required defaultValue={initial?.name} placeholder="Alex Morgan" />
+          <FieldError message={fieldErrors.name?.[0]} />
         </label>
         <label className="space-y-1.5 text-sm">
           <span className="font-medium">Title</span>
           <Input name="title" defaultValue={initial?.title ?? ""} placeholder="VP of Sales" />
+          <FieldError message={fieldErrors.title?.[0]} />
         </label>
         <label className="space-y-1.5 text-sm">
           <span className="font-medium">Email</span>
           <Input name="email" type="email" defaultValue={initial?.email ?? ""} placeholder="alex@example.com" />
+          <FieldError message={fieldErrors.email?.[0]} />
         </label>
         <label className="space-y-1.5 text-sm sm:col-span-2">
           <span className="font-medium">LinkedIn</span>
           <Input name="linkedin" type="url" defaultValue={initial?.linkedin ?? ""} placeholder="https://linkedin.com/in/alex" />
+          <FieldError message={fieldErrors.linkedin?.[0]} />
         </label>
         <label className="space-y-1.5 text-sm sm:col-span-2">
           <span className="font-medium">Notes</span>
           <Textarea name="notes" defaultValue={initial?.notes ?? ""} placeholder="Context for future research…" rows={4} />
+          <FieldError message={fieldErrors.notes?.[0]} />
         </label>
       </div>
       <div className="flex justify-end gap-2">

@@ -1,13 +1,41 @@
 import { z } from "zod";
 
-import { pipelineStages } from "@/lib/db/schema";
+import { pipelineStages } from "@/lib/db/pipeline";
 
 export const companyStatuses = ["prospect", "customer", "inactive"] as const;
 export type CompanyStatus = (typeof companyStatuses)[number];
 
+const httpUrl = z
+  .string()
+  .trim()
+  .url()
+  .refine((value) => /^https?:$/i.test(new URL(value).protocol), "Use an HTTP or HTTPS URL.");
+
+const httpsPublicUrl = httpUrl.refine((value) => {
+  const hostname = new URL(value).hostname.toLowerCase();
+  return (
+    new URL(value).protocol === "https:" &&
+    hostname !== "localhost" &&
+    hostname !== "0.0.0.0" &&
+    hostname !== "::1" &&
+    !hostname.includes(":") &&
+    !hostname.endsWith(".local") &&
+    !/^10(?:\.\d{1,3}){3}$/.test(hostname) &&
+    !/^127(?:\.\d{1,3}){3}$/.test(hostname) &&
+    !/^169\.254(?:\.\d{1,3}){2}$/.test(hostname) &&
+    !/^192\.168(?:\.\d{1,3}){2}$/.test(hostname) &&
+    !/^172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}$/.test(hostname)
+  );
+}, "Use a public HTTPS URL.");
+
 const optionalUrl = z.preprocess(
   (value) => (value === "" ? undefined : value),
-  z.url().optional(),
+  httpUrl.optional(),
+);
+
+const optionalHttpsUrl = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  httpsPublicUrl.optional(),
 );
 
 const optionalText = (max: number) =>
@@ -37,7 +65,7 @@ export const contactInputSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.email().optional(),
   ),
-  linkedin: optionalUrl,
+  linkedin: optionalHttpsUrl,
   notes: optionalText(5000),
 });
 
@@ -55,7 +83,7 @@ export const updatePipelineSchema = z.object({
 });
 
 export const researchCompanySchema = z.object({
-  websiteUrl: z.url(),
+  websiteUrl: httpsPublicUrl,
 });
 
 export const scoreIcpSchema = z.object({
@@ -85,3 +113,13 @@ export const callPrepSchema = z.object({
 
 export type CompanyInput = z.infer<typeof companyInputSchema>;
 export type ContactInput = z.infer<typeof contactInputSchema>;
+
+/** Canonical hostname used by ingestion deduplication and external providers. */
+export function normalizeCompanyDomain(website: string | undefined): string | null {
+  if (!website) return null;
+  try {
+    return new URL(website).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}

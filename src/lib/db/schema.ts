@@ -12,24 +12,15 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { pipelineStages } from "./pipeline";
+
+export { pipelineStages } from "./pipeline";
+export type { PipelineStage } from "./pipeline";
 
 export type AuditChanges = Readonly<Record<string, unknown>>;
 export type AuditMetadata = Readonly<Record<string, unknown>>;
 
-export const pipelineStages = [
-  "new",
-  "researching",
-  "qualified",
-  "contacted",
-  "replied",
-  "meeting",
-  "won",
-  "lost",
-] as const;
-
 export const pipelineStageEnum = pgEnum("pipeline_stage", pipelineStages);
-
-export type PipelineStage = (typeof pipelineStages)[number];
 
 export const organizations = pgTable(
   "organizations",
@@ -117,6 +108,8 @@ export const companies = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 200 }).notNull(),
+    /** Canonical hostname used for provider ingestion deduplication. */
+    domain: varchar("domain", { length: 253 }),
     website: varchar("website", { length: 500 }),
     industry: varchar("industry", { length: 120 }),
     size: varchar("size", { length: 80 }),
@@ -146,6 +139,10 @@ export const companies = pgTable(
       sql`${table.icpScore} IS NULL OR (${table.icpScore} >= 0 AND ${table.icpScore} <= 100)`,
     ),
     index("companies_organization_id_idx").on(table.organizationId),
+    uniqueIndex("companies_organization_domain_uidx").on(
+      table.organizationId,
+      table.domain,
+    ),
     index("companies_status_idx").on(table.organizationId, table.status),
     index("companies_enrichment_status_idx").on(
       table.organizationId,
@@ -165,6 +162,7 @@ export const contacts = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => companies.id, { onDelete: "cascade" }),
+    apolloId: varchar("apollo_id", { length: 160 }),
     name: varchar("name", { length: 160 }).notNull(),
     title: varchar("title", { length: 160 }),
     email: varchar("email", { length: 320 }),
@@ -182,6 +180,10 @@ export const contacts = pgTable(
     index("contacts_organization_id_idx").on(table.organizationId),
     index("contacts_company_id_idx").on(table.companyId),
     index("contacts_email_idx").on(table.organizationId, table.email),
+    uniqueIndex("contacts_organization_apollo_uidx").on(
+      table.organizationId,
+      table.apolloId,
+    ),
   ],
 ).enableRLS();
 

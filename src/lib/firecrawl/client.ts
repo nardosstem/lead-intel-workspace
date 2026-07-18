@@ -81,7 +81,15 @@ export function getFirecrawlClient(): FirecrawlClient {
 }
 
 export async function scrapeDomain(domain: string): Promise<FirecrawlScrapeResult> {
-  const normalizedDomain = domain.trim().replace(/^https?:\/\//, "");
+  const candidate = domain.trim();
+  const normalizedDomain = (() => {
+    try {
+      const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+      return url.hostname.replace(/^www\./i, "").toLowerCase();
+    } catch {
+      return candidate.replace(/^https?:\/\//i, "").split(/[/?#]/, 1)[0].toLowerCase();
+    }
+  })();
   const sourceUrl = `https://${normalizedDomain}`;
 
   try {

@@ -1,8 +1,9 @@
-import type { PipelineStage } from "@/lib/db/schema";
+import type { PipelineStage } from "@/lib/db/pipeline";
 
 export type CompanyRecord = {
   id: string;
   name: string;
+  domain: string | null;
   website: string | null;
   industry: string | null;
   size: string | null;

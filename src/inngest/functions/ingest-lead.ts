@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { inngest, leadIngestRequested } from "@/inngest/client";
@@ -9,7 +9,7 @@ import {
   type ApolloLeadBatch,
 } from "@/lib/apollo";
 import { getAIProvider } from "@/lib/ai/server";
-import { auditLogs, companies, contacts, pipeline } from "@/lib/db";
+import { auditLogs, companies, contacts, pipeline, users } from "@/lib/db";
 import { scrapeDomain, type FirecrawlScrapeResult } from "@/lib/firecrawl";
 
 import {
@@ -37,6 +37,8 @@ function normalizeComparable(value: string | null | undefined): string | null {
 }
 
 function sameContact(left: typeof contacts.$inferSelect, right: ApolloContactPayload): boolean {
+  if (left.apolloId && left.apolloId === right.apolloId) return true;
+
   const leftEmail = normalizeComparable(left.email);
   const rightEmail = normalizeComparable(right.email);
   if (leftEmail && rightEmail && leftEmail === rightEmail) return true;
@@ -56,13 +58,34 @@ async function saveInitialData(
   context: LeadContext,
 ): Promise<InitialLeadData> {
   return withLeadMutationContext(context, async (tx) => {
+    const actor = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          eq(users.id, context.userId),
+          eq(users.organizationId, context.organizationId),
+        ),
+      )
+      .limit(1);
+    if (!actor[0]) {
+      throw new Error("Ingestion actor is not a member of the target organization.");
+    }
+
+    // Serialize concurrent retries/submissions for the same tenant/domain so
+    // the contact dedupe scan and inserts share one atomic boundary.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${context.organizationId}:${batch.domain}`}, 0))`,
+    );
+
     const organizationCompanies = await tx
       .select()
       .from(companies)
       .where(eq(companies.organizationId, context.organizationId));
     let company = organizationCompanies.find(
       (candidate) =>
-        candidate.website && normalizeDomain(candidate.website) === batch.domain,
+        candidate.domain === batch.domain ||
+        (candidate.website && normalizeDomain(candidate.website) === batch.domain),
     );
 
     if (!company) {
@@ -70,6 +93,7 @@ async function saveInitialData(
         .insert(companies)
         .values({
           organizationId: context.organizationId,
+          domain: batch.domain,
           name: batch.company.name,
           website: batch.company.website,
           industry: batch.company.industry,
@@ -78,19 +102,70 @@ async function saveInitialData(
           status: "prospect",
           enrichmentStatus: "processing",
         })
+        .onConflictDoNothing({
+          target: [companies.organizationId, companies.domain],
+        })
         .returning();
       company = inserted[0];
-      if (!company) throw new Error("Apollo company insert returned no row.");
+      if (!company) {
+        const concurrent = await tx
+          .select()
+          .from(companies)
+          .where(
+            and(
+              eq(companies.organizationId, context.organizationId),
+              eq(companies.domain, batch.domain),
+            ),
+          )
+          .limit(1);
+        company = concurrent[0];
+        if (!company) throw new Error("Apollo company insert returned no row.");
+      }
 
-      await tx.insert(pipeline).values({
-        organizationId: context.organizationId,
-        companyId: company.id,
-        stage: "new",
-      });
+      if (inserted[0]) {
+        await tx.insert(pipeline).values({
+          organizationId: context.organizationId,
+          companyId: company.id,
+          stage: "new",
+        });
+      } else {
+        const updated = await tx
+          .update(companies)
+          .set({ enrichmentStatus: "processing", domain: batch.domain })
+          .where(
+            and(
+              eq(companies.id, company.id),
+              eq(companies.organizationId, context.organizationId),
+            ),
+          )
+          .returning();
+        company = updated[0] ?? company;
+
+        const existingCompanyPipeline = await tx
+          .select({ id: pipeline.id })
+          .from(pipeline)
+          .where(
+            and(
+              eq(pipeline.organizationId, context.organizationId),
+              eq(pipeline.companyId, company.id),
+            ),
+          )
+          .limit(1);
+        if (!existingCompanyPipeline[0]) {
+          await tx
+            .insert(pipeline)
+            .values({
+              organizationId: context.organizationId,
+              companyId: company.id,
+              stage: "new",
+            })
+            .onConflictDoNothing({ target: pipeline.companyId });
+        }
+      }
     } else {
       const updated = await tx
         .update(companies)
-        .set({ enrichmentStatus: "processing" })
+        .set({ enrichmentStatus: "processing", domain: batch.domain })
         .where(
           and(
             eq(companies.id, company.id),
@@ -135,7 +210,38 @@ async function saveInitialData(
         sameContact(candidate, contactPayload),
       );
       if (existing) {
+        if (!existing.apolloId) {
+          await tx
+            .update(contacts)
+            .set({ apolloId: contactPayload.apolloId })
+            .where(
+              and(
+                eq(contacts.id, existing.id),
+                eq(contacts.organizationId, context.organizationId),
+              ),
+            );
+        }
         contactIds.push(existing.id);
+        const existingContactPipeline = await tx
+          .select({ id: pipeline.id })
+          .from(pipeline)
+          .where(
+            and(
+              eq(pipeline.organizationId, context.organizationId),
+              eq(pipeline.contactId, existing.id),
+            ),
+          )
+          .limit(1);
+        if (!existingContactPipeline[0]) {
+          await tx
+            .insert(pipeline)
+            .values({
+              organizationId: context.organizationId,
+              contactId: existing.id,
+              stage: "new",
+            })
+            .onConflictDoNothing({ target: pipeline.contactId });
+        }
         continue;
       }
 
@@ -144,6 +250,7 @@ async function saveInitialData(
         .values({
           organizationId: context.organizationId,
           companyId: company.id,
+          apolloId: contactPayload.apolloId,
           name: contactPayload.name,
           title: contactPayload.title,
           email: contactPayload.email,
@@ -156,11 +263,14 @@ async function saveInitialData(
       contactIds.push(contact.id);
       existingContacts.push(contact);
 
-      await tx.insert(pipeline).values({
-        organizationId: context.organizationId,
-        contactId: contact.id,
-        stage: "new",
-      });
+      await tx
+        .insert(pipeline)
+        .values({
+          organizationId: context.organizationId,
+          contactId: contact.id,
+          stage: "new",
+        })
+        .onConflictDoNothing({ target: pipeline.contactId });
     }
 
     return {
@@ -168,6 +278,33 @@ async function saveInitialData(
       contactIds,
       primaryContact: batch.contacts[0] ?? null,
     };
+  });
+}
+
+async function markEnrichmentFailed(
+  context: LeadContext,
+  companyId: string,
+  domain: string,
+): Promise<void> {
+  await withLeadMutationContext(context, async (tx) => {
+    await tx
+      .update(companies)
+      .set({ enrichmentStatus: "failed" })
+      .where(
+        and(
+          eq(companies.id, companyId),
+          eq(companies.organizationId, context.organizationId),
+        ),
+      );
+    await tx.insert(auditLogs).values({
+      organizationId: context.organizationId,
+      actorUserId: context.userId,
+      action: "enrichment_failed",
+      entityType: "company",
+      entityId: companyId,
+      changes: { enrichmentStatus: "failed" },
+      metadata: { source: "apollo-firecrawl-inngest", domain },
+    });
   });
 }
 
@@ -197,10 +334,11 @@ export const ingestLead = inngest.createFunction(
       saveInitialData(apolloData, context),
     );
 
-    const scrape: FirecrawlScrapeResult = await step.run(
-      "scrape-website",
-      async () => scrapeDomain(apolloData.domain),
-    );
+    try {
+      const scrape: FirecrawlScrapeResult = await step.run(
+        "scrape-website",
+        async () => scrapeDomain(apolloData.domain),
+      );
 
     const enrichment: EnrichmentData = await step.run(
       "ai-enrichment",
@@ -276,11 +414,17 @@ export const ingestLead = inngest.createFunction(
       }),
     );
 
-    return {
-      companyId: saved.id,
-      contactsFound: initialData.contactIds.length,
-      icpScore: enrichment.icpScore,
-      scrapeWarning: scrape.warning ?? null,
-    };
+      return {
+        companyId: saved.id,
+        contactsFound: initialData.contactIds.length,
+        icpScore: enrichment.icpScore,
+        scrapeWarning: scrape.warning ?? null,
+      };
+    } catch (error) {
+      await step.run("mark-enrichment-failed", async () => {
+        await markEnrichmentFailed(context, initialData.companyId, apolloData.domain);
+      });
+      throw error;
+    }
   },
 );

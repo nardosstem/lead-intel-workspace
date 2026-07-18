@@ -12,7 +12,7 @@ ARCHITECTURE
 - Put domain behavior in src/features/<feature>; expose a deliberate public index.ts.
 - Put reusable application components in src/components/shared and shadcn primitives in src/components/ui.
 - Keep secrets, database code, privileged Supabase code, and AI providers in server-only modules.
-- Do not add microservices, queues, or a second state/data framework without an accepted architecture decision.
+- Do not add microservices, additional queues, or a second state/data framework without an accepted architecture decision; Inngest is the approved background workflow.
 
 TYPES AND VALIDATION
 - Maintain TypeScript strict mode; do not use any, ts-ignore, or unsafe casts to bypass errors.
@@ -66,4 +66,5 @@ BACKGROUND INGESTION
 - Use named step.run blocks for Apollo, initial persistence, Firecrawl, AI enrichment, and final persistence.
 - Make ingestion idempotent at the database boundary; retries must not duplicate companies or contacts.
 - External API wrappers must enforce server-only credentials, request timeouts, typed response parsing, and safe error messages.
+- Validate external URLs as HTTP(S) and reject private/reserved hosts before handing them to providers.
 - Do not put long-running Apollo, Firecrawl, or AI work in a Server Action; actions only enqueue Inngest events.

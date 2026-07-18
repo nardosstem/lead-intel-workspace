@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { inngest, leadIngestRequested } from "@/inngest/client";
+import { isPublicHostname } from "@/lib/domains";
 import { normalizeDomain } from "@/lib/apollo";
 
 import { requireLeadContext } from "./server/context";
@@ -26,7 +27,9 @@ function actionFailure(error: unknown): ActionResult<never> {
     return { ok: false, error: "Inngest is not configured. Set INNGEST_EVENT_KEY first." };
   }
 
-  console.error(error);
+  console.error("Lead ingestion action failed", {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
   return { ok: false, error: "Lead ingestion could not be started." };
 }
 
@@ -39,7 +42,7 @@ export async function triggerDomainIngestion(
   }
 
   const normalizedDomain = normalizeDomain(parsed.data);
-  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(normalizedDomain)) {
+  if (!isPublicHostname(normalizedDomain)) {
     return { ok: false, error: "Enter a valid domain such as stripe.com." };
   }
 

@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 
 import { companyStatuses } from "../validation";
-import { pipelineStages, type PipelineStage } from "@/lib/db/schema";
+import { pipelineStages, type PipelineStage } from "@/lib/db/pipeline";
 import {
   deleteCompany,
   deleteContact,
@@ -99,6 +99,14 @@ function fullDate(value: string | null): string {
         timeStyle: "short",
       }).format(new Date(value))
     : "Not scheduled";
+}
+
+function dateTimeLocalValue(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function isDue(value: string | null): boolean {
@@ -628,6 +636,34 @@ export function LeadWorkbench({
     });
   }
 
+  function changePipelineFollowUp(item: PipelineRecord, value: string) {
+    startRefresh(async () => {
+      const result = await updatePipeline({
+        id: item.id,
+        stage: item.stage,
+        nextFollowUpAt: value ? new Date(value).toISOString() : null,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setData((current) => ({
+        ...current,
+        pipeline: current.pipeline.map((row) =>
+          row.id === item.id
+            ? { ...row, nextFollowUpAt: result.data.nextFollowUpAt }
+            : row,
+        ),
+      }));
+      setSelectedPipeline((current) =>
+        current?.id === item.id
+          ? { ...current, nextFollowUpAt: result.data.nextFollowUpAt }
+          : current,
+      );
+      toast.success(value ? "Follow-up scheduled" : "Follow-up cleared");
+    });
+  }
+
   function confirmDeleteCompany(company: CompanyRecord) {
     if (!window.confirm(`Delete ${company.name} and its contacts?`)) return;
     startRefresh(async () => {
@@ -678,7 +714,7 @@ export function LeadWorkbench({
             <RefreshCw className={isRefreshing ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
             Refresh
           </Button>
-          {view === "dashboard" && <QuickAddDomain />}
+          {view === "dashboard" && <QuickAddDomain onStarted={refresh} />}
           <CsvImport onImported={refresh} />
           <Button type="button" size="sm" onClick={() => setCompanyDialog("create")}>
             <Plus className="size-4" aria-hidden="true" />
@@ -782,7 +818,23 @@ export function LeadWorkbench({
                 <div><p className="text-xs text-muted-foreground">Size</p><p className="mt-1 font-medium">{selectedCompany.size ?? "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Location</p><p className="mt-1 font-medium">{selectedCompany.location ?? "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><StatusPill value={selectedCompany.status} /></div></div>
+                <div><p className="text-xs text-muted-foreground">Enrichment</p><p className="mt-1 font-medium capitalize">{selectedCompany.enrichmentStatus}</p></div>
+                <div><p className="text-xs text-muted-foreground">ICP score</p><p className="mt-1 font-medium">{selectedCompany.icpScore ?? "—"}{selectedCompany.icpScore === null ? "" : "/100"}</p></div>
               </div>
+              {selectedCompany.painPoints.length > 0 && (
+                <div className="rounded-lg border p-4 text-sm">
+                  <p className="font-medium">Likely pain points</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                    {selectedCompany.painPoints.map((painPoint) => <li key={painPoint}>{painPoint}</li>)}
+                  </ul>
+                </div>
+              )}
+              {selectedCompany.outreachDraft && (
+                <details className="rounded-lg border p-4 text-sm">
+                  <summary className="cursor-pointer font-medium">Generated outreach draft</summary>
+                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-muted-foreground">{selectedCompany.outreachDraft}</pre>
+                </details>
+              )}
               <AiActionButtons company={selectedCompany} />
               <DialogFooter>
                 <Button type="button" variant="destructive" onClick={() => confirmDeleteCompany(selectedCompany)}>Delete</Button>
@@ -862,8 +914,19 @@ export function LeadWorkbench({
                   </Select>
                 </label>
                 <div className="rounded-lg border p-3 text-sm">
-                  <p className="text-xs text-muted-foreground">Next follow-up</p>
-                  <p className="mt-1 font-medium">{fullDate(selectedPipeline.nextFollowUpAt)}</p>
+                  <label className="space-y-1.5">
+                    <span className="text-xs text-muted-foreground">Next follow-up</span>
+                    <Input
+                      type="datetime-local"
+                      value={dateTimeLocalValue(selectedPipeline.nextFollowUpAt)}
+                      onChange={(event) => changePipelineFollowUp(selectedPipeline, event.target.value)}
+                      disabled={isRefreshing}
+                      aria-label="Next follow-up date and time"
+                    />
+                  </label>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {fullDate(selectedPipeline.nextFollowUpAt)}
+                  </p>
                 </div>
               </div>
             </>

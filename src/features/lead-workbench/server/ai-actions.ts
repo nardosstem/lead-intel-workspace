@@ -39,7 +39,9 @@ function aiFailure(error: unknown): ActionResult<never> {
     return { ok: false, error: "Sign in with an organization account to use AI actions." };
   }
 
-  console.error(error);
+  console.error("AI action failed", {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
   return { ok: false, error: "The AI action could not be completed." };
 }
 
@@ -64,7 +66,7 @@ export async function researchCompany(
   try {
     const context = await requireLeadContext();
     const result = await getAIProvider().extractEntities({
-      text: `Research the company website at ${parsed.data.websiteUrl}. Return a concise company summary, likely operational or commercial pain points, and evidence signals.`,
+      text: `Research the company website at ${parsed.data.websiteUrl}. Return a concise company summary, likely operational or commercial pain points, and evidence signals. Fetch only public information available at that URL.`,
       schema: researchResultSchema,
       instructions:
         "Use only public, non-sensitive information. Do not invent facts. Keep each pain point and signal concise.",

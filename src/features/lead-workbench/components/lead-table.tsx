@@ -123,8 +123,8 @@ export function LeadTable<T extends { id: string }>({
         )}
       </div>
 
-      <div className="rounded-xl border">
-        <Table>
+      <div className="overflow-x-auto rounded-xl border">
+        <Table className="min-w-[720px]">
           <TableHeader>
             <TableRow>
               {columns.map((column) => (

@@ -18,6 +18,7 @@ import {
   updateCompanyInputSchema,
   updateContactInputSchema,
   updatePipelineSchema,
+  normalizeCompanyDomain,
 } from "../validation";
 import type {
   ActionResult,
@@ -56,7 +57,20 @@ function actionFailure(error: unknown): ActionResult<never> {
     return { ok: false, error: "Sign in with an organization account to manage leads." };
   }
 
-  console.error(error);
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505" &&
+    "constraint" in error &&
+    error.constraint === "companies_organization_domain_uidx"
+  ) {
+    return { ok: false, error: "A company with that domain already exists." };
+  }
+
+  console.error("Lead operation failed", {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
   return { ok: false, error: "The lead operation could not be completed." };
 }
 
@@ -78,7 +92,11 @@ export async function createCompany(
       data: await withLeadMutation(async (tx, context) => {
         const inserted = await tx
           .insert(companies)
-          .values({ ...parsed.data, organizationId: context.organizationId })
+          .values({
+            ...parsed.data,
+            domain: normalizeCompanyDomain(parsed.data.website),
+            organizationId: context.organizationId,
+          })
           .returning();
         const company = inserted[0];
         if (!company) {
@@ -112,9 +130,12 @@ export async function updateCompany(
       ok: true,
       data: await withLeadMutation(async (tx, context) => {
         const { id, ...values } = parsed.data;
+        const updateValues = Object.hasOwn(parsed.data, "website")
+          ? { ...values, domain: normalizeCompanyDomain(values.website) }
+          : values;
         const updated = await tx
           .update(companies)
-          .set(values)
+          .set(updateValues)
           .where(and(eq(companies.id, id), eq(companies.organizationId, context.organizationId)))
           .returning();
         const company = updated[0];
@@ -274,6 +295,51 @@ export async function updatePipeline(
     return {
       ok: true,
       data: await withLeadMutation(async (tx, context) => {
+        const current = await tx
+          .select({
+            id: pipeline.id,
+            companyId: pipeline.companyId,
+            contactId: pipeline.contactId,
+          })
+          .from(pipeline)
+          .where(
+            and(
+              eq(pipeline.id, parsed.data.id),
+              eq(pipeline.organizationId, context.organizationId),
+            ),
+          )
+          .limit(1);
+        const target = current[0];
+        if (!target) {
+          throw new Error("Pipeline record not found.");
+        }
+
+        if (target.companyId) {
+          const company = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(
+              and(
+                eq(companies.id, target.companyId),
+                eq(companies.organizationId, context.organizationId),
+              ),
+            )
+            .limit(1);
+          if (!company[0]) throw new Error("Pipeline target is outside the organization.");
+        } else if (target.contactId) {
+          const contact = await tx
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.id, target.contactId),
+                eq(contacts.organizationId, context.organizationId),
+              ),
+            )
+            .limit(1);
+          if (!contact[0]) throw new Error("Pipeline target is outside the organization.");
+        }
+
         const updated = await tx
           .update(pipeline)
           .set({
@@ -286,11 +352,9 @@ export async function updatePipeline(
             id: pipeline.id,
             stage: pipeline.stage,
             nextFollowUpAt: pipeline.nextFollowUpAt,
-          });
+        });
         const row = updated[0];
-        if (!row) {
-          throw new Error("Pipeline record not found.");
-        }
+        if (!row) throw new Error("Pipeline record not found.");
         return {
           id: row.id,
           stage: row.stage,
@@ -317,7 +381,11 @@ export async function importCompaniesCsv(
       for (const row of parsed.rows) {
         const inserted = await tx
           .insert(companies)
-          .values({ ...row, organizationId: context.organizationId })
+          .values({
+            ...row,
+            domain: normalizeCompanyDomain(row.website),
+            organizationId: context.organizationId,
+          })
           .returning({ id: companies.id });
         const company = inserted[0];
         if (company) {

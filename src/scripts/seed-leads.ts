@@ -103,6 +103,7 @@ async function seed() {
             id: company.id,
             organizationId: demoOrganizationId,
             name: company.name,
+            domain: new URL(company.website).hostname.replace(/^www\./, "").toLowerCase(),
             website: company.website,
             industry: company.industry,
             size: company.size,

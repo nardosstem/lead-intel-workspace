@@ -60,8 +60,9 @@ export function AppSidebar() {
                       render={<Link href={item.href} />}
                       isActive={
                         pathname === item.href.split("?")[0] &&
-                        (!item.href.includes("?") ||
-                          searchParams.get("view") === item.href.split("view=")[1])
+                        (item.href.includes("?")
+                          ? searchParams.get("view") === item.href.split("view=")[1]
+                          : !searchParams.has("view"))
                       }
                       tooltip={item.label}
                     >

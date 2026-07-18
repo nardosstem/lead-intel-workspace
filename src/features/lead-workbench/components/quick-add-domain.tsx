@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 
 import { triggerDomainIngestion } from "../actions";
 
-export function QuickAddDomain() {
+export function QuickAddDomain({ onStarted }: Readonly<{ onStarted?: () => void }>) {
   const [domain, setDomain] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -26,6 +26,7 @@ export function QuickAddDomain() {
       }
 
       setDomain("");
+      onStarted?.();
       toast.success(result.data.message);
     });
   }

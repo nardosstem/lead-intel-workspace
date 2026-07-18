@@ -38,6 +38,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 DATABASE_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres?sslmode=require
 CLAUDE_MCP_ENDPOINT=http://localhost:8787/mcp/tools
+CLAUDE_MCP_AUTH_TOKEN=optional-bearer-token
 APOLLO_API_KEY=your-apollo-master-api-key
 FIRECRAWL_API_KEY=fc-your-firecrawl-api-key
 INNGEST_EVENT_KEY=your-inngest-event-key
@@ -63,6 +64,11 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:studio` | Inspect the configured database |
 | `npm run db:seed:leads` | Insert deterministic demo companies, contacts, and pipeline rows |
 | `npm test` | Run Apollo, Firecrawl, and Inngest contract tests |
+
+GitHub Actions runs `npm test`, `npm run check`, and `npm run build` for pushes
+to `main` and pull requests.
+CSV imports are capped at 5 MB and 500 rows; Next Server Actions allow a 6 MB
+bounded request to accommodate serialization overhead.
 
 ## Architecture
 
@@ -112,6 +118,9 @@ internals.
 - `audit_logs`: append-oriented records of actor, action, entity, changes, and
   metadata for “who changed what.”
 - `companies`, `contacts`, and `pipeline`: organization-scoped lead records;
+  companies keep a canonical domain with an organization-scoped uniqueness
+  boundary for provider ingestion, and contacts retain Apollo IDs for stable
+  retry deduplication;
   pipeline uses one current record per company or contact and an enum-backed
   stage from New through Won/Lost.
 
@@ -244,6 +253,8 @@ Then:
   audit records.
 - Apollo, Firecrawl, and Inngest credentials are server-only and never use
   `NEXT_PUBLIC_` names.
+- `INNGEST_DEV=1` is for local development only; deployed handlers require
+  `INNGEST_SIGNING_KEY` so webhook requests are authenticated.
 - Expected errors are modeled as typed results; unexpected failures reach the
   nearest application error boundary and must be reported without leaking
   sensitive details.
