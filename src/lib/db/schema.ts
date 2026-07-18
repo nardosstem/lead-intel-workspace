@@ -1,5 +1,6 @@
 import {
   check,
+  integer,
   index,
   jsonb,
   pgEnum,
@@ -121,6 +122,16 @@ export const companies = pgTable(
     size: varchar("size", { length: 80 }),
     location: varchar("location", { length: 160 }),
     status: varchar("status", { length: 40 }).notNull().default("prospect"),
+    enrichmentStatus: varchar("enrichment_status", { length: 40 })
+      .notNull()
+      .default("pending"),
+    icpScore: integer("icp_score"),
+    painPoints: jsonb("pain_points")
+      .$type<ReadonlyArray<string>>()
+      .notNull()
+      .default([]),
+    outreachDraft: text("outreach_draft"),
+    enrichedAt: timestamp("enriched_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -130,8 +141,16 @@ export const companies = pgTable(
       .notNull(),
   },
   (table) => [
+    check(
+      "companies_icp_score_check",
+      sql`${table.icpScore} IS NULL OR (${table.icpScore} >= 0 AND ${table.icpScore} <= 100)`,
+    ),
     index("companies_organization_id_idx").on(table.organizationId),
     index("companies_status_idx").on(table.organizationId, table.status),
+    index("companies_enrichment_status_idx").on(
+      table.organizationId,
+      table.enrichmentStatus,
+    ),
     index("companies_created_at_idx").on(table.organizationId, table.createdAt),
   ],
 ).enableRLS();

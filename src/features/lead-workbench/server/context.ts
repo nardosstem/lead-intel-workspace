@@ -51,10 +51,10 @@ type DatabaseTransactionCallback = Parameters<Database["transaction"]>[0];
 export type LeadTransaction = Parameters<DatabaseTransactionCallback>[0];
 
 /** Sets trigger context and executes a mutation in one transaction. */
-export async function withLeadMutation<T>(
+export async function withLeadMutationContext<T>(
+  context: LeadContext,
   operation: (tx: LeadTransaction, context: LeadContext) => Promise<T>,
 ): Promise<T> {
-  const context = await requireLeadContext();
   const db = getDatabase();
 
   return db.transaction(async (tx) => {
@@ -66,4 +66,11 @@ export async function withLeadMutation<T>(
     );
     return operation(tx, context);
   });
+}
+
+/** Uses the current request identity for a foreground mutation. */
+export async function withLeadMutation<T>(
+  operation: (tx: LeadTransaction, context: LeadContext) => Promise<T>,
+): Promise<T> {
+  return withLeadMutationContext(await requireLeadContext(), operation);
 }

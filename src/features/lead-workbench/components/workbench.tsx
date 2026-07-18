@@ -48,6 +48,7 @@ import { ContactForm } from "./contact-form";
 import { CsvImport } from "./csv-import";
 import { AiActionButtons } from "./ai-actions";
 import { LeadTable, type LeadTableColumn, type LeadTableFilter } from "./lead-table";
+import { QuickAddDomain } from "./quick-add-domain";
 
 export type WorkbenchView =
   | "dashboard"
@@ -677,6 +678,7 @@ export function LeadWorkbench({
             <RefreshCw className={isRefreshing ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
             Refresh
           </Button>
+          {view === "dashboard" && <QuickAddDomain />}
           <CsvImport onImported={refresh} />
           <Button type="button" size="sm" onClick={() => setCompanyDialog("create")}>
             <Plus className="size-4" aria-hidden="true" />

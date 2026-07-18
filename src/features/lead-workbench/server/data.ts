@@ -33,6 +33,11 @@ export function toCompanyRecord(company: typeof companies.$inferSelect): Company
     size: company.size,
     location: company.location,
     status: company.status,
+    enrichmentStatus: company.enrichmentStatus,
+    icpScore: company.icpScore,
+    painPoints: [...company.painPoints],
+    outreachDraft: company.outreachDraft,
+    enrichedAt: company.enrichedAt?.toISOString() ?? null,
     createdAt: toIso(company.createdAt),
     updatedAt: toIso(company.updatedAt),
   };

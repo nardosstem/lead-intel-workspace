@@ -8,6 +8,11 @@ export type CompanyRecord = {
   size: string | null;
   location: string | null;
   status: string;
+  enrichmentStatus: string;
+  icpScore: number | null;
+  painPoints: string[];
+  outreachDraft: string | null;
+  enrichedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -60,3 +60,10 @@ LEAD WORKBENCH
 - Add loading, empty, validation, and error states to every lead view and form.
 - Route AI actions through IAIProvider and include organization, actor, and trace context.
 - Never expose raw MCP endpoints, provider credentials, or prompt contents in client bundles.
+
+BACKGROUND INGESTION
+- Keep Inngest events serializable, tenant-scoped, and validated with a runtime schema.
+- Use named step.run blocks for Apollo, initial persistence, Firecrawl, AI enrichment, and final persistence.
+- Make ingestion idempotent at the database boundary; retries must not duplicate companies or contacts.
+- External API wrappers must enforce server-only credentials, request timeouts, typed response parsing, and safe error messages.
+- Do not put long-running Apollo, Firecrawl, or AI work in a Server Action; actions only enqueue Inngest events.

@@ -1,0 +1,15 @@
+export {
+  ApolloApiError,
+  ApolloClient,
+  ApolloConfigurationError,
+  getApolloClient,
+  ingestApolloLeads,
+  normalizeDomain,
+  type ApolloClientOptions,
+  type ApolloCompanyPayload,
+  type ApolloContactPayload,
+  type ApolloLeadBatch,
+  type ApolloLeadSource,
+  type ApolloOrganization,
+  type ApolloPerson,
+} from "./client";

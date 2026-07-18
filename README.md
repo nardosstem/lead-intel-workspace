@@ -13,6 +13,7 @@ same feature boundary.
 - Drizzle ORM and Drizzle Kit migrations
 - `next-themes`, Lucide icons, and Sonner toasts
 - Provider-neutral AI contracts with a Claude MCP adapter
+- Inngest durable background functions, Apollo lead extraction, and Firecrawl website scraping
 
 `package.json` and `package-lock.json` are the dependency source of truth.
 [`requirements.txt`](./requirements.txt) is an implementation contract for
@@ -37,6 +38,10 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 DATABASE_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres?sslmode=require
 CLAUDE_MCP_ENDPOINT=http://localhost:8787/mcp/tools
+APOLLO_API_KEY=your-apollo-master-api-key
+FIRECRAWL_API_KEY=fc-your-firecrawl-api-key
+INNGEST_EVENT_KEY=your-inngest-event-key
+INNGEST_SIGNING_KEY=signkey-prod-...
 ```
 
 Use a direct connection for migrations. At runtime, Supabase's session pooler
@@ -57,6 +62,7 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Inspect the configured database |
 | `npm run db:seed:leads` | Insert deterministic demo companies, contacts, and pipeline rows |
+| `npm test` | Run Apollo, Firecrawl, and Inngest contract tests |
 
 ## Architecture
 
@@ -72,6 +78,7 @@ src/
 │   ├── ai/                 # Provider contract, factory, adapters
 │   ├── auth/               # Supabase browser/server clients and session logic
 │   └── db/                 # Drizzle client, schema, and migrations
+├── inngest/                # Durable lead ingestion client and functions
 └── proxy.ts                # Next.js 16 request boundary/session refresh
 ```
 
@@ -193,11 +200,24 @@ trace context; do not send secrets or unnecessary personal data in prompts.
 
 `/leads` provides dashboard KPIs, an eight-stage horizontally scrollable
 pipeline, responsive searchable/filterable company and contact tables, manual
-forms, CSV import, detail dialogs, audit history, and workspace preferences.
+forms, CSV import, Quick Add Domain ingestion, detail dialogs, audit history,
+and workspace preferences.
 The UI is empty-state safe when no authenticated organization profile exists;
 mutations and AI actions return actionable errors until the user is signed in.
 Set `CLAUDE_MCP_ENDPOINT` to an HTTP bridge that accepts `{ name, arguments }`
 and returns the response envelope expected by `ClaudeMCPProvider`.
+
+Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
+returns immediately. The durable `ingest-lead` function then fetches up to five
+Apollo contacts, saves tenant-scoped records early, scrapes the company with
+Firecrawl, asks `IAIProvider` for ICP score/pain points/outreach, and saves the
+enrichment with an audit entry. Run the Inngest Dev Server locally when testing
+background execution (`npx inngest-cli@latest dev -u
+http://localhost:3000/api/inngest`); set `INNGEST_DEV=1` for the local app. The
+app serves functions at `/api/inngest`.
+The current Inngest SDK publishes the Next.js adapter as `inngest/next`; the
+separate `@inngest/next` package requested by older setup guides is not
+published, so it is intentionally not added as a dead dependency.
 
 ## Adding a feature
 
@@ -222,12 +242,15 @@ Then:
   authorization.
 - Organization scope is mandatory in queries, storage paths, AI context, and
   audit records.
+- Apollo, Firecrawl, and Inngest credentials are server-only and never use
+  `NEXT_PUBLIC_` names.
 - Expected errors are modeled as typed results; unexpected failures reach the
   nearest application error boundary and must be reported without leaking
   sensitive details.
 
 ## Current scope
 
-The initial lead-workbench module is included under `src/features/lead-workbench`
-and is intentionally focused on lead intelligence workflows. Sign-in UX,
-billing, and a production MCP deployment remain separately reviewed concerns.
+The initial lead-workbench module and its durable Apollo/Firecrawl/AI ingestion
+workflow are included under `src/features/lead-workbench` and `src/inngest`.
+Sign-in UX, billing, and a production MCP deployment remain separately reviewed
+concerns.
