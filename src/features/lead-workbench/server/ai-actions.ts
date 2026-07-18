@@ -15,15 +15,15 @@ import {
 import type { ActionResult } from "../types";
 
 const researchResultSchema = z.object({
-  summary: z.string(),
-  painPoints: z.array(z.string()).max(12),
-  signals: z.array(z.string()).max(12),
+  summary: z.string().max(12_000),
+  painPoints: z.array(z.string().max(500)).max(12),
+  signals: z.array(z.string().max(500)).max(12),
 });
 
 const scoreResultSchema = z.object({
   score: z.number().min(0).max(100),
-  rationale: z.string(),
-  signals: z.array(z.string()).max(12),
+  rationale: z.string().max(4_000),
+  signals: z.array(z.string().max(500)).max(12),
 });
 
 function aiFailure(error: unknown): ActionResult<never> {

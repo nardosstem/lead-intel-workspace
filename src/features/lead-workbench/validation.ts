@@ -8,8 +8,13 @@ export type CompanyStatus = (typeof companyStatuses)[number];
 const httpUrl = z
   .string()
   .trim()
+  .max(2_048, "URL must be 2,048 characters or fewer.")
   .url()
-  .refine((value) => /^https?:$/i.test(new URL(value).protocol), "Use an HTTP or HTTPS URL.");
+  .refine((value) => /^https?:$/i.test(new URL(value).protocol), "Use an HTTP or HTTPS URL.")
+  .refine((value) => {
+    const url = new URL(value);
+    return url.username.length === 0 && url.password.length === 0;
+  }, "URLs cannot include embedded credentials.");
 
 const httpsPublicUrl = httpUrl.refine((value) => {
   const hostname = new URL(value).hostname.toLowerCase();
@@ -43,6 +48,22 @@ const optionalText = (max: number) =>
     (value) => (value === "" ? undefined : value),
     z.string().trim().max(max).optional(),
   );
+
+const companyDataSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  website: optionalUrl,
+  industry: optionalText(120),
+  size: optionalText(80),
+  location: optionalText(160),
+  status: optionalText(40),
+});
+
+const contactDataSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  title: optionalText(160),
+  email: optionalText(320),
+  notes: optionalText(5_000),
+});
 
 export const companyInputSchema = z.object({
   name: z.string().trim().min(1, "Company name is required").max(200),
@@ -87,28 +108,16 @@ export const researchCompanySchema = z.object({
 });
 
 export const scoreIcpSchema = z.object({
-  companyData: z.object({
-    name: z.string().min(1),
-    website: z.string().optional(),
-    industry: z.string().optional(),
-    size: z.string().optional(),
-    location: z.string().optional(),
-    status: z.string().optional(),
-  }),
+  companyData: companyDataSchema,
 });
 
 export const draftOutreachSchema = z.object({
-  contactData: z.object({
-    name: z.string().min(1),
-    title: z.string().optional(),
-    email: z.string().optional(),
-    notes: z.string().optional(),
-  }),
-  companyData: scoreIcpSchema.shape.companyData,
+  contactData: contactDataSchema,
+  companyData: companyDataSchema,
 });
 
 export const callPrepSchema = z.object({
-  companyData: scoreIcpSchema.shape.companyData,
+  companyData: companyDataSchema,
 });
 
 export type CompanyInput = z.infer<typeof companyInputSchema>;

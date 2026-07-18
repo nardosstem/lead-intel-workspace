@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { contactInputSchema, researchCompanySchema } from "./validation";
+import {
+  contactInputSchema,
+  researchCompanySchema,
+  scoreIcpSchema,
+} from "./validation";
 
 describe("lead input URL validation", () => {
   it("rejects executable schemes and private research hosts", () => {
@@ -17,11 +21,30 @@ describe("lead input URL validation", () => {
     expect(
       researchCompanySchema.safeParse({ websiteUrl: "https://[::1]" }).success,
     ).toBe(false);
+    expect(
+      researchCompanySchema.safeParse({ websiteUrl: "https://user:pass@acme.com" }).success,
+    ).toBe(false);
   });
 
   it("accepts a public HTTPS research URL", () => {
     expect(
       researchCompanySchema.safeParse({ websiteUrl: "https://acme.com/about" }).success,
     ).toBe(true);
+  });
+
+  it("bounds AI payload fields", () => {
+    expect(
+      researchCompanySchema.safeParse({ websiteUrl: `https://acme.com/${"x".repeat(2_049)}` }).success,
+    ).toBe(false);
+    expect(
+      scoreIcpSchema.safeParse({
+        companyData: { name: "x".repeat(201) },
+      }).success,
+    ).toBe(false);
+    expect(
+      scoreIcpSchema.safeParse({
+        companyData: { name: "Acme", website: "https://user:pass@acme.com" },
+      }).success,
+    ).toBe(false);
   });
 });

@@ -362,7 +362,7 @@ export const ingestLead = inngest.createFunction(
           context: {
             organizationId: context.organizationId,
             actorUserId: context.userId,
-            traceId: `lead-ingest:${event.data.domain}`,
+            traceId: `lead-ingest:${context.organizationId}:${event.data.domain}`,
           },
         });
 
@@ -421,9 +421,16 @@ export const ingestLead = inngest.createFunction(
         scrapeWarning: scrape.warning ?? null,
       };
     } catch (error) {
-      await step.run("mark-enrichment-failed", async () => {
-        await markEnrichmentFailed(context, initialData.companyId, apolloData.domain);
-      });
+      try {
+        await step.run("mark-enrichment-failed", async () => {
+          await markEnrichmentFailed(context, initialData.companyId, apolloData.domain);
+        });
+      } catch (failureError) {
+        console.error("Unable to mark lead enrichment as failed", {
+          errorName: failureError instanceof Error ? failureError.name : "UnknownError",
+          companyId: initialData.companyId,
+        });
+      }
       throw error;
     }
   },

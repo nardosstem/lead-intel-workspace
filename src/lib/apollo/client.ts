@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const APOLLO_BASE_URL = "https://api.apollo.io";
 const REQUEST_TIMEOUT_MS = 20_000;
+const MAX_APOLLO_RESPONSE_BYTES = 2_000_000;
 
 const nullableString = z.string().nullable().optional();
 
@@ -151,6 +152,27 @@ function toLocation(organization: ApolloOrganization | undefined): string | null
   return parts.length ? parts.join(", ") : null;
 }
 
+function toLinkedIn(value: string | null | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(candidate);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      (hostname !== "linkedin.com" && !hostname.endsWith(".linkedin.com"))
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function toCompanyPayload(
   domain: string,
   people: ApolloPerson[],
@@ -184,7 +206,7 @@ function toContactPayload(person: ApolloPerson): ApolloContactPayload | null {
     name,
     title: person.title?.trim() || null,
     email: person.email?.trim() || null,
-    linkedin: person.linkedin_url?.trim() || null,
+    linkedin: toLinkedIn(person.linkedin_url),
     notes: person.email_status
       ? `Apollo email status: ${person.email_status}`
       : null,
@@ -264,6 +286,13 @@ export class ApolloClient implements ApolloLeadSource {
     }
 
     const responseText = await response.text();
+    if (responseText.length > MAX_APOLLO_RESPONSE_BYTES) {
+      throw new ApolloApiError(
+        "Apollo response exceeded the configured size limit.",
+        response.status,
+      );
+    }
+
     let responseBody: unknown = {};
     try {
       responseBody = responseText ? JSON.parse(responseText) : {};

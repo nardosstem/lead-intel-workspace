@@ -113,6 +113,23 @@ function isDue(value: string | null): boolean {
   return Boolean(value && new Date(value).getTime() <= Date.now());
 }
 
+function safeLinkedInHref(value: string | null): string | null {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    return url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      (hostname === "linkedin.com" || hostname.endsWith(".linkedin.com"))
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function StatusPill({ value }: Readonly<{ value: string }>) {
   return (
     <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
@@ -457,7 +474,7 @@ function SettingsView() {
             ["Dark mode", "Use the theme control in the global header."],
             ["Audit history", "Company, contact, and pipeline mutations are recorded by database triggers."],
             ["Organization scope", "Every query and mutation is constrained to the authenticated organization."],
-            ["AI provider", "Claude MCP actions are available when CLAUDE_MCP_ENDPOINT is configured."],
+            ["AI provider", "Claude MCP actions are available when the deployment is configured."],
           ].map(([label, description]) => (
             <div key={label} className="flex gap-3 rounded-lg border p-3">
               <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -541,7 +558,19 @@ export function LeadWorkbench({
       },
       { key: "company", label: "Company", searchValue: (row) => row.companyName, render: (row) => row.companyName },
       { key: "title", label: "Title", searchValue: (row) => row.title ?? "", render: (row) => row.title ?? "—" },
-      { key: "linkedin", label: "LinkedIn", searchValue: (row) => row.linkedin ?? "", render: (row) => row.linkedin ? <a href={row.linkedin} target="_blank" rel="noreferrer" className="text-primary hover:underline">Profile</a> : "—" },
+      {
+        key: "linkedin",
+        label: "LinkedIn",
+        searchValue: (row) => row.linkedin ?? "",
+        render: (row) => {
+          const href = safeLinkedInHref(row.linkedin);
+          return href ? (
+            <a href={href} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+              Profile
+            </a>
+          ) : "—";
+        },
+      },
       { key: "createdAt", label: "Added", searchValue: (row) => row.createdAt, render: (row) => shortDate(row.createdAt) },
       {
         key: "actions",

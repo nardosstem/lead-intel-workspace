@@ -81,4 +81,39 @@ describe("Apollo client", () => {
       expect.objectContaining({ status: 401 } satisfies Partial<ApolloApiError>),
     );
   });
+
+  it("drops unsafe LinkedIn URLs returned by the provider", async () => {
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async (input) =>
+        jsonResponse(
+          String(input).includes("api_search")
+            ? { people: [{ id: "person-1", name: "Person 1" }] }
+            : {
+                matches: [
+                  {
+                    id: "person-1",
+                    name: "Person 1",
+                    linkedin_url: "javascript:alert(1)",
+                  },
+                ],
+              },
+        ),
+    });
+
+    const result = await ingestApolloLeads("acme.com", ["CEO"], client);
+    expect(result.contacts[0]?.linkedin).toBeNull();
+  });
+
+  it("rejects oversized provider responses before parsing them", async () => {
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async () =>
+        new Response("x".repeat(2_000_001), { status: 200 }),
+    });
+
+    await expect(client.searchDomain("acme.com", ["CEO"])).rejects.toThrow(
+      /size limit/i,
+    );
+  });
 });
