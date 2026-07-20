@@ -305,6 +305,8 @@ Provider calls must execute on the server. Include organization, actor, and
 trace context; do not send secrets or unnecessary personal data in prompts.
 AI actions re-read tenant-scoped company/contact records by ID before creating
 provider prompts, and outreach prompts omit contact email addresses.
+Apollo fields, contact notes, and scraped Markdown are treated as untrusted
+reference data; prompt instructions embedded in those fields are ignored.
 
 ### Lead workbench behavior
 
