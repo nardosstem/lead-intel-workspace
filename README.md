@@ -248,7 +248,9 @@ set
   organization_id = excluded.organization_id,
   email = excluded.email,
   full_name = excluded.full_name,
-  role = excluded.role;
+  role = 'owner',
+  is_active = true,
+  deactivated_at = null;
 ```
 
 Passwords remain managed by Supabase Auth and are never stored in
