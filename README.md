@@ -50,6 +50,12 @@ NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=base64-or-hex-deployment-secret
 SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 ```
 
+`GET /api/health` is a public, cache-disabled deployment check. It verifies
+database liveness and reports non-secret dependency configuration as `ok`,
+`degraded`, or `unhealthy`; it deliberately does not probe provider networks or
+consume Apollo/Firecrawl/AI credits. Configure the hosting platform to treat
+HTTP 503 (`unhealthy`) as a failed readiness check.
+
 Use a direct connection for migrations. At runtime, Supabase's session pooler
 is also supported because the Postgres.js client disables prepared statements.
 Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
@@ -355,6 +361,9 @@ be completed in staging or the hosting environment:
   action references. Generate a suitable value with `openssl rand -base64 32`.
 - Run an authenticated two-organization CRUD/authorization test and one real
   Apollo → Firecrawl → MCP ingestion before enabling provider-consuming CI.
+- Verify the deployed `/api/health` endpoint reports `ok` after all required
+  secrets and the database are available; `degraded` means a non-core provider
+  or invitation dependency is not configured.
 
 Latest local provider probes (2026-07-20) are intentionally recorded here:
 Firecrawl returned HTTP 200 for a public scrape, Apollo returned HTTP 403 for

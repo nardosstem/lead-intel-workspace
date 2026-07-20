@@ -45,4 +45,15 @@ test.describe("authentication shell", () => {
     await expect(page).toHaveURL(/\/login\?next=(%2F|\/)leads/);
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   });
+
+  test("exposes a non-secret deployment health response", async ({ request }) => {
+    const response = await request.get("/api/health");
+
+    expect(response.status()).toBe(200);
+    expect(response.headers()["cache-control"]).toBe("no-store");
+    await expect(response.json()).resolves.toMatchObject({
+      status: expect.stringMatching(/^(ok|degraded)$/),
+      checks: expect.objectContaining({ database: "ok" }),
+    });
+  });
 });
