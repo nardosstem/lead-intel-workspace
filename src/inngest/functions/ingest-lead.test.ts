@@ -18,7 +18,12 @@ describe("lead ingestion workflow error policy", () => {
   it("keeps rate limits and server failures retryable", () => {
     expect(toWorkflowError(new ApolloApiError("rate limited", 429))).toBeInstanceOf(ApolloApiError);
     expect(toWorkflowError(new ApolloApiError("server error", 503))).toBeInstanceOf(ApolloApiError);
+    expect(toWorkflowError(new AIProviderError("Claude MCP endpoint returned HTTP 429.", "claude-mcp"))).toBeInstanceOf(AIProviderError);
     expect(toWorkflowError(new AIProviderError("Claude MCP request timed out.", "claude-mcp"))).toBeInstanceOf(AIProviderError);
+  });
+
+  it("stops retries for other Claude MCP client errors", () => {
+    expect(toWorkflowError(new AIProviderError("Claude MCP endpoint returned HTTP 403.", "claude-mcp"))).toBeInstanceOf(NonRetriableError);
   });
 
   it("stores only safe error categories", () => {
