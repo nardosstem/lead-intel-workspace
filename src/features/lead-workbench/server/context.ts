@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getCurrentUser, requireCurrentUser } from "@/lib/auth/user";
 import { getDatabase, organizations, users, type Database } from "@/lib/db";
@@ -132,6 +132,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
         organizationId,
         email,
         fullName,
+        role: "owner",
       })
       .onConflictDoNothing();
 
@@ -167,8 +168,59 @@ export async function requireLeadContext(): Promise<LeadContext> {
   return { userId: user.id, organizationId };
 }
 
+export async function requireLeadAdminContext(): Promise<LeadContext & { role: "owner" | "admin" }> {
+  const user = await requireCurrentUser();
+  const db = getDatabase();
+  const profile = await db
+    .select({ organizationId: users.organizationId, role: users.role })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+  const membership = profile[0];
+
+  if (!membership?.organizationId) {
+    throw new Error("An organization profile is required for lead access.");
+  }
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    const error = new Error("Organization administrator access is required.");
+    error.name = "AuthorizationRequiredError";
+    throw error;
+  }
+
+  return {
+    userId: user.id,
+    organizationId: membership.organizationId,
+    role: membership.role,
+  };
+}
+
 type DatabaseTransactionCallback = Parameters<Database["transaction"]>[0];
 export type LeadTransaction = Parameters<DatabaseTransactionCallback>[0];
+
+/** Re-checks and locks the actor membership inside the mutation transaction. */
+export async function requireLeadAdminTransaction(
+  tx: LeadTransaction,
+  context: LeadContext,
+): Promise<LeadContext & { role: "owner" | "admin" }> {
+  const profile = await tx
+    .select({ organizationId: users.organizationId, role: users.role })
+    .from(users)
+    .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
+    .for("update")
+    .limit(1);
+  const membership = profile[0];
+
+  if (!membership) {
+    throw new Error("An organization profile is required for lead access.");
+  }
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    const error = new Error("Organization administrator access is required.");
+    error.name = "AuthorizationRequiredError";
+    throw error;
+  }
+
+  return { ...context, role: membership.role };
+}
 
 /** Sets trigger context and executes a mutation in one transaction. */
 export async function withLeadMutationContext<T>(

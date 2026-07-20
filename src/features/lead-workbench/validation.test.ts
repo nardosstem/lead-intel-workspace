@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   contactInputSchema,
+  organizationRoles,
   researchCompanySchema,
   scoreIcpSchema,
+  updateMemberRoleSchema,
   workspaceSettingsSchema,
 } from "./validation";
+import { assertRoleChangeAllowed, RolePolicyError } from "./server/role-policy";
 
 describe("lead input URL validation", () => {
   it("rejects executable schemes and private research hosts", () => {
@@ -58,5 +61,53 @@ describe("lead input URL validation", () => {
     expect(
       workspaceSettingsSchema.safeParse({ defaultStage: "new", followUpDays: 0 }).success,
     ).toBe(false);
+  });
+});
+
+describe("organization governance validation", () => {
+  it("keeps the role vocabulary explicit and validates role updates", () => {
+    expect(organizationRoles).toEqual(["owner", "admin", "member"]);
+    expect(updateMemberRoleSchema.safeParse({
+      targetUserId: "00000000-0000-4000-8000-000000000001",
+      role: "admin",
+    }).success).toBe(true);
+    expect(updateMemberRoleSchema.safeParse({
+      targetUserId: "not-a-uuid",
+      role: "owner",
+    }).success).toBe(false);
+    expect(updateMemberRoleSchema.safeParse({
+      targetUserId: "00000000-0000-4000-8000-000000000001",
+      role: "superadmin",
+    }).success).toBe(false);
+  });
+
+  it("prevents admins from granting owner access or changing owners", () => {
+    expect(() => assertRoleChangeAllowed({
+      actorRole: "admin",
+      targetRole: "member",
+      requestedRole: "owner",
+      ownerCount: 2,
+    })).toThrowError(new RolePolicyError("Only the organization owner can grant owner access.", "authorization"));
+    expect(() => assertRoleChangeAllowed({
+      actorRole: "admin",
+      targetRole: "owner",
+      requestedRole: "admin",
+      ownerCount: 2,
+    })).toThrowError(/Only the organization owner can change an owner/);
+  });
+
+  it("prevents demoting the last owner", () => {
+    expect(() => assertRoleChangeAllowed({
+      actorRole: "owner",
+      targetRole: "owner",
+      requestedRole: "member",
+      ownerCount: 1,
+    })).toThrowError(/at least one owner/);
+    expect(() => assertRoleChangeAllowed({
+      actorRole: "owner",
+      targetRole: "owner",
+      requestedRole: "admin",
+      ownerCount: 2,
+    })).not.toThrow();
   });
 });

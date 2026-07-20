@@ -12,7 +12,7 @@ import {
 } from "@/lib/apollo";
 import { getAIProvider } from "@/lib/ai/server";
 import { AIProviderError } from "@/lib/ai";
-import { auditLogs, companies, contacts, pipeline, users } from "@/lib/db";
+import { auditLogs, companies, contacts, organizations, pipeline, users } from "@/lib/db";
 import { scrapeDomain, type FirecrawlScrapeResult } from "@/lib/firecrawl";
 
 import {
@@ -103,6 +103,16 @@ async function initializeIngestion(
       throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
     }
 
+    const settings = await tx
+      .select({
+        defaultStage: organizations.defaultPipelineStage,
+        followUpDays: organizations.defaultFollowUpDays,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, context.organizationId))
+      .limit(1);
+    const defaults = settings[0];
+
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${context.organizationId}:${domain}`}, 0))`,
     );
@@ -153,7 +163,14 @@ async function initializeIngestion(
 
     await tx
       .insert(pipeline)
-      .values({ organizationId: context.organizationId, companyId, stage: "new" })
+      .values({
+        organizationId: context.organizationId,
+        companyId,
+        stage: defaults?.defaultStage ?? "new",
+        nextFollowUpAt: new Date(
+          Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
+        ),
+      })
       .onConflictDoNothing({ target: pipeline.companyId });
 
     return companyId;
@@ -180,6 +197,19 @@ async function saveInitialData(
     if (!actor[0]) {
       throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
     }
+
+    const settings = await tx
+      .select({
+        defaultStage: organizations.defaultPipelineStage,
+        followUpDays: organizations.defaultFollowUpDays,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, context.organizationId))
+      .limit(1);
+    const defaults = settings[0];
+    const nextFollowUpAt = new Date(
+      Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
+    );
 
     // Serialize concurrent retries/submissions for the same tenant/domain so
     // the contact dedupe scan and inserts share one atomic boundary.
@@ -230,7 +260,12 @@ async function saveInitialData(
 
     await tx
       .insert(pipeline)
-      .values({ organizationId: context.organizationId, companyId: persistedCompany.id, stage: "new" })
+      .values({
+        organizationId: context.organizationId,
+        companyId: persistedCompany.id,
+        stage: defaults?.defaultStage ?? "new",
+        nextFollowUpAt,
+      })
       .onConflictDoNothing({ target: pipeline.companyId });
 
     const existingContacts = await tx
@@ -295,7 +330,8 @@ async function saveInitialData(
             .values({
               organizationId: context.organizationId,
               contactId: existing.id,
-              stage: "new",
+              stage: defaults?.defaultStage ?? "new",
+              nextFollowUpAt,
             })
             .onConflictDoNothing({ target: pipeline.contactId });
         }
@@ -325,7 +361,8 @@ async function saveInitialData(
         .values({
           organizationId: context.organizationId,
           contactId: contact.id,
-          stage: "new",
+          stage: defaults?.defaultStage ?? "new",
+          nextFollowUpAt,
         })
         .onConflictDoNothing({ target: pipeline.contactId });
     }

@@ -1,8 +1,10 @@
 import "server-only";
 
 import type { User } from "@supabase/supabase-js";
+import { eq } from "drizzle-orm";
 
 import { createClient } from "@/lib/auth/server";
+import { getDatabase, organizations, users } from "@/lib/db";
 
 export class AuthenticationRequiredError extends Error {
   constructor() {
@@ -37,4 +39,20 @@ export async function requireCurrentUser(): Promise<User> {
   }
 
   return user;
+}
+
+export async function getCurrentOrganizationName(userId: string): Promise<string | null> {
+  try {
+    const rows = await getDatabase()
+      .select({ name: organizations.name })
+      .from(users)
+      .innerJoin(organizations, eq(users.organizationId, organizations.id))
+      .where(eq(users.id, userId))
+      .limit(1);
+    return rows[0]?.name ?? null;
+  } catch {
+    // The shell can still render the authenticated header during a transient
+    // database outage; protected lead operations surface their own errors.
+    return null;
+  }
 }

@@ -3,6 +3,7 @@ export type {
   ActionResult,
   CompanyRecord,
   ContactRecord,
+  OrganizationMemberRecord,
   PipelineRecord,
   WorkbenchSnapshot,
 } from "./types";

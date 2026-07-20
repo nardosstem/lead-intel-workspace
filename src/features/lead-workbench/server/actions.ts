@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -9,17 +9,25 @@ import {
   contacts,
   organizations,
   pipeline,
+  users,
 } from "@/lib/db";
 
 import { parseCompaniesCsv } from "./csv";
-import { withLeadMutation } from "./context";
+import {
+  requireLeadAdminContext,
+  requireLeadAdminTransaction,
+  withLeadMutation,
+  withLeadMutationContext,
+} from "./context";
 import { getWorkbenchSnapshot, toCompanyRecord, toContactRecord } from "./data";
+import { assertRoleChangeAllowed, RolePolicyError } from "./role-policy";
 import {
   companyInputSchema,
   contactInputSchema,
   updateCompanyInputSchema,
   updateContactInputSchema,
   updatePipelineSchema,
+  updateMemberRoleSchema,
   normalizeCompanyDomain,
   workspaceSettingsSchema,
 } from "../validation";
@@ -29,6 +37,7 @@ import type {
   ContactRecord,
   WorkbenchSnapshot,
   WorkspaceSettings,
+  OrganizationMemberRecord,
 } from "../types";
 
 function validationFailure(error: z.ZodError): ActionResult<never> {
@@ -61,6 +70,18 @@ function actionFailure(error: unknown): ActionResult<never> {
     return { ok: false, error: "Sign in with an organization account to manage leads." };
   }
 
+  if (error instanceof Error && error.name === "AuthorizationRequiredError") {
+    return { ok: false, error: "Only organization owners and admins can perform this action." };
+  }
+
+  if (error instanceof RolePolicyError && error.kind === "authorization") {
+    return { ok: false, error: error.message };
+  }
+
+  if (error instanceof RolePolicyError && error.kind === "invariant") {
+    return { ok: false, error: error.message };
+  }
+
   if (
     typeof error === "object" &&
     error !== null &&
@@ -89,9 +110,11 @@ export async function updateWorkspaceSettings(
   if (!parsed.success) return validationFailure(parsed.error);
 
   try {
+    const context = await requireLeadAdminContext();
     return {
       ok: true,
-      data: await withLeadMutation(async (tx, context) => {
+      data: await withLeadMutationContext(context, async (tx) => {
+        const actor = await requireLeadAdminTransaction(tx, context);
         const updated = await tx
           .update(organizations)
           .set({
@@ -122,8 +145,107 @@ export async function updateWorkspaceSettings(
 
         return {
           organizationName: organization.name,
+          currentUserId: context.userId,
           defaultStage: organization.defaultStage,
           followUpDays: organization.followUpDays,
+          currentUserRole: actor.role,
+        };
+      }),
+    };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+/** Updates a tenant member role without ever permitting cross-organization access. */
+export async function updateMemberRole(
+  input: unknown,
+): Promise<ActionResult<OrganizationMemberRecord>> {
+  const parsed = updateMemberRoleSchema.safeParse(input);
+  if (!parsed.success) return validationFailure(parsed.error);
+
+  try {
+    const context = await requireLeadAdminContext();
+
+    return {
+      ok: true,
+      data: await withLeadMutationContext(context, async (tx) => {
+        // Serialize role changes for this organization so two concurrent
+        // demotions cannot both observe the same owner count.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`role:${context.organizationId}`}, 0))`,
+        );
+        const actor = await requireLeadAdminTransaction(tx, context);
+        const targetRows = await tx
+          .select({
+            id: users.id,
+            email: users.email,
+            fullName: users.fullName,
+            role: users.role,
+            createdAt: users.createdAt,
+          })
+          .from(users)
+          .where(
+            and(
+              eq(users.id, parsed.data.targetUserId),
+              eq(users.organizationId, context.organizationId),
+            ),
+          )
+          .limit(1);
+        const target = targetRows[0];
+        if (!target) throw new Error("Organization member not found.");
+
+        const ownerCount = await tx
+          .select({ value: count(users.id) })
+          .from(users)
+          .where(
+            and(
+              eq(users.organizationId, context.organizationId),
+              eq(users.role, "owner"),
+            ),
+          );
+        assertRoleChangeAllowed({
+          actorRole: actor.role,
+          targetRole: target.role,
+          requestedRole: parsed.data.role,
+          ownerCount: Number(ownerCount[0]?.value ?? 0),
+        });
+
+        const updated = await tx
+          .update(users)
+          .set({ role: parsed.data.role })
+          .where(
+            and(
+              eq(users.id, target.id),
+              eq(users.organizationId, context.organizationId),
+            ),
+          )
+          .returning({
+            id: users.id,
+            email: users.email,
+            fullName: users.fullName,
+            role: users.role,
+            createdAt: users.createdAt,
+          });
+        const member = updated[0];
+        if (!member) throw new Error("Member role update returned no row.");
+
+        await tx.insert(auditLogs).values({
+          organizationId: context.organizationId,
+          actorUserId: context.userId,
+          action: "member_role_updated",
+          entityType: "user",
+          entityId: member.id,
+          changes: { before: { role: target.role }, after: { role: member.role } },
+          metadata: { source: "lead-workbench-settings" },
+        });
+
+        return {
+          id: member.id,
+          email: member.email,
+          fullName: member.fullName,
+          role: member.role,
+          createdAt: member.createdAt.toISOString(),
         };
       }),
     };

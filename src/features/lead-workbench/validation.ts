@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import { pipelineStages } from "@/lib/db/pipeline";
 
+export const organizationRoles = ["owner", "admin", "member"] as const;
+export type OrganizationRole = (typeof organizationRoles)[number];
+
 export const companyStatuses = ["prospect", "customer", "inactive"] as const;
 export type CompanyStatus = (typeof companyStatuses)[number];
 
@@ -106,6 +109,11 @@ export const updatePipelineSchema = z.object({
 export const workspaceSettingsSchema = z.object({
   defaultStage: z.enum(pipelineStages),
   followUpDays: z.coerce.number().int().min(1).max(90),
+});
+
+export const updateMemberRoleSchema = z.object({
+  targetUserId: z.uuid(),
+  role: z.enum(organizationRoles),
 });
 
 export const researchCompanySchema = z.object({

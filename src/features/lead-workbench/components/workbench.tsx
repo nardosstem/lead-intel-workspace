@@ -36,6 +36,7 @@ import {
   deleteCompany,
   deleteContact,
   getLeads,
+  updateMemberRole,
   updateWorkspaceSettings,
   updatePipeline,
 } from "../server/actions";
@@ -43,6 +44,7 @@ import type {
   CompanyRecord,
   ContactRecord,
   AuditRecord,
+  OrganizationMemberRecord,
   PipelineRecord,
   WorkbenchSnapshot,
   WorkspaceSettings,
@@ -449,15 +451,46 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
 
 function SettingsView({
   settings,
+  members,
   onSaved,
+  onMemberUpdated,
 }: Readonly<{
   settings: WorkspaceSettings;
+  members: OrganizationMemberRecord[];
   onSaved: (settings: WorkspaceSettings) => void;
+  onMemberUpdated: (member: OrganizationMemberRecord) => void;
 }>) {
   const [defaultStage, setDefaultStage] = useState<PipelineStage>(settings.defaultStage);
   const [followUpDays, setFollowUpDays] = useState(String(settings.followUpDays));
   const [isPending, startTransition] = useTransition();
+  const [pendingMemberId, setPendingMemberId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [memberError, setMemberError] = useState<string | null>(null);
+
+  function changeMemberRole(memberId: string, role: OrganizationMemberRecord["role"]) {
+    const member = members.find((candidate) => candidate.id === memberId);
+    if (member && (role === "owner" || member.role === "owner") &&
+      !window.confirm(`Confirm changing ${member.email}'s role to ${role}.`)) {
+      return;
+    }
+    setMemberError(null);
+    setPendingMemberId(memberId);
+    startTransition(async () => {
+      try {
+        const result = await updateMemberRole({ targetUserId: memberId, role });
+        if (!result.ok) {
+          setMemberError(result.error);
+          return;
+        }
+        onMemberUpdated(result.data);
+        toast.success("Member role updated");
+      } catch {
+        setMemberError("Member role could not be updated. Try again.");
+      } finally {
+        setPendingMemberId(null);
+      }
+    });
+  }
 
   function save() {
     setError(null);
@@ -483,6 +516,42 @@ function SettingsView({
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
       <Card>
         <CardHeader>
+          <CardTitle className="text-base">Members and access</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Owners and admins can manage workspace roles. Members can manage leads but cannot change organization defaults.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {memberError ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{memberError}</p> : null}
+          {members.length ? members.map((member) => (
+            <div key={member.id} className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {member.fullName ?? member.email}
+                  {member.id === settings.currentUserId ? <span className="ml-2 text-xs font-normal text-muted-foreground">You</span> : null}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+              </div>
+              <Select
+                value={member.role}
+                onValueChange={(value) => changeMemberRole(member.id, value as OrganizationMemberRecord["role"])}
+                disabled={settings.currentUserRole === "member" || pendingMemberId === member.id || (member.role === "owner" && settings.currentUserRole !== "owner")}
+              >
+                <SelectTrigger className="w-full sm:w-32" aria-label={`Role for ${member.email}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="owner" disabled={settings.currentUserRole !== "owner"}>Owner</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )) : <p className="text-sm text-muted-foreground">No organization members found.</p>}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base">Workspace preferences</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
             Persisted organization defaults used for newly created companies and contacts.
@@ -492,7 +561,7 @@ function SettingsView({
           {error ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
           <label className="space-y-1.5 text-sm">
             <span className="font-medium">Default pipeline stage</span>
-            <Select value={defaultStage} onValueChange={(value) => value && setDefaultStage(value as PipelineStage)}>
+            <Select value={defaultStage} onValueChange={(value) => value && setDefaultStage(value as PipelineStage)} disabled={settings.currentUserRole === "member"}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>{pipelineStages.map((stage) => <SelectItem key={stage} value={stage}>{stageLabels[stage]}</SelectItem>)}</SelectContent>
             </Select>
@@ -508,11 +577,12 @@ function SettingsView({
                 onChange={(event) => setFollowUpDays(event.target.value)}
                 className="w-24"
                 aria-label="Default follow-up days"
+                disabled={settings.currentUserRole === "member"}
               />
               <span className="text-sm text-muted-foreground">days after first touch</span>
             </div>
           </label>
-          <Button type="button" onClick={save} disabled={isPending}>
+          <Button type="button" onClick={save} disabled={isPending || settings.currentUserRole === "member"}>
             {isPending ? "Saving…" : "Save preferences"}
           </Button>
         </CardContent>
@@ -911,9 +981,17 @@ export function LeadWorkbench({
       {view === "audit" && <AuditView logs={data.auditLogs} />}
       {view === "settings" && (
         <SettingsView
-          key={`${data.settings.defaultStage}-${data.settings.followUpDays}`}
+          key={`${data.settings.defaultStage}-${data.settings.followUpDays}-${data.members.map((member) => `${member.id}:${member.role}`).join(",")}`}
           settings={data.settings}
+          members={data.members}
           onSaved={(settings) => setData((current) => ({ ...current, settings }))}
+          onMemberUpdated={(updatedMember) => setData((current) => ({
+            ...current,
+            settings: updatedMember.id === current.settings.currentUserId
+              ? { ...current.settings, currentUserRole: updatedMember.role }
+              : current.settings,
+            members: current.members.map((member) => member.id === updatedMember.id ? updatedMember : member),
+          }))}
         />
       )}
 

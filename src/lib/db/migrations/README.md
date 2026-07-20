@@ -40,4 +40,12 @@ record of each generated work product.
 
 Migration `0009_*.sql` adds persisted organization defaults for the initial
 pipeline stage and follow-up window. Settings updates are explicitly audited,
-and new manual/CSV lead records consume the saved defaults.
+and new manual, CSV, and Apollo-ingested lead records consume the saved
+defaults.
+
+Migration `0010_*.sql` adds explicit organization roles (`owner`, `admin`, and
+`member`) to user profiles. Existing organizations retain administrative access
+by promoting their oldest profile to owner; new self-service workspaces start
+with the signing-in user as owner. Role changes are tenant-scoped, audited, and
+cannot remove the last owner. Existing-profile promotions are recorded as
+system migration audit entries with a null actor.

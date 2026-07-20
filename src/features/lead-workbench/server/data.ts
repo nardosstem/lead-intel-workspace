@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 
 import {
   auditLogs,
@@ -18,6 +18,7 @@ import {
   type CompanyRecord,
   type ContactRecord,
   type AuditRecord,
+  type OrganizationMemberRecord,
   type PipelineRecord,
   type WorkbenchSnapshot,
 } from "../types";
@@ -118,7 +119,7 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   }
 
   const db = getDatabase();
-  const [organizationRows, companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
+  const [organizationRows, memberRows, companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
     db
       .select({
         name: organizations.name,
@@ -128,6 +129,17 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       .from(organizations)
       .where(eq(organizations.id, context.organizationId))
       .limit(1),
+    db
+      .select({
+        id: users.id,
+        email: users.email,
+        fullName: users.fullName,
+        role: users.role,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(eq(users.organizationId, context.organizationId))
+      .orderBy(asc(users.createdAt)),
     db
       .select()
       .from(companies)
@@ -187,9 +199,19 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   return {
     settings: {
       organizationName: organizationRows[0]?.name ?? "Lead Intel Workspace",
+      currentUserId: context.userId,
       defaultStage: organizationRows[0]?.defaultStage ?? "new",
       followUpDays: organizationRows[0]?.followUpDays ?? 7,
+      currentUserRole:
+        memberRows.find((member) => member.id === context.userId)?.role ?? "member",
     },
+    members: memberRows.map((member): OrganizationMemberRecord => ({
+      id: member.id,
+      email: member.email,
+      fullName: member.fullName,
+      role: member.role,
+      createdAt: member.createdAt.toISOString(),
+    })),
     companies: companyRows.map(toCompanyRecord),
     contacts: contactRows.map((row) =>
       toContactRecord(row.contact, row.companyName),

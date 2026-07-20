@@ -65,8 +65,17 @@ export type AuditRecord = {
   createdAt: string;
 };
 
+export type OrganizationMemberRecord = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  role: "owner" | "admin" | "member";
+  createdAt: string;
+};
+
 export type WorkbenchSnapshot = {
   settings: WorkspaceSettings;
+  members: OrganizationMemberRecord[];
   companies: CompanyRecord[];
   contacts: ContactRecord[];
   pipeline: PipelineRecord[];
@@ -75,8 +84,10 @@ export type WorkbenchSnapshot = {
 
 export type WorkspaceSettings = {
   organizationName: string;
+  currentUserId: string | null;
   defaultStage: PipelineStage;
   followUpDays: number;
+  currentUserRole: "owner" | "admin" | "member";
 };
 
 export type ActionResult<T> =
@@ -90,9 +101,12 @@ export type ActionResult<T> =
 export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
   settings: {
     organizationName: "Lead Intel Workspace",
+    currentUserId: null,
     defaultStage: "new",
     followUpDays: 7,
+    currentUserRole: "member",
   },
+  members: [],
   companies: [],
   contacts: [],
   pipeline: [],

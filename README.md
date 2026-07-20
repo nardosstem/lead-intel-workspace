@@ -212,19 +212,21 @@ link an Auth user explicitly in the Supabase SQL Editor, replacing the email if
 needed:
 
 ```sql
-insert into public.users (id, organization_id, email, full_name)
+insert into public.users (id, organization_id, email, full_name, role)
 select
   id,
   '10000000-0000-4000-8000-000000000001'::uuid,
   email,
-  'Demo User'
+  'Demo User',
+  'owner'
 from auth.users
 where email = 'demo@leadintel.local'
 on conflict (id) do update
 set
   organization_id = excluded.organization_id,
   email = excluded.email,
-  full_name = excluded.full_name;
+  full_name = excluded.full_name,
+  role = excluded.role;
 ```
 
 Passwords remain managed by Supabase Auth and are never stored in
@@ -286,6 +288,18 @@ The UI is empty-state safe when no authenticated organization profile exists;
 mutations and AI actions return actionable errors until the user is signed in.
 Set `CLAUDE_MCP_ENDPOINT` to an HTTP bridge that accepts `{ name, arguments }`
 and returns the response envelope expected by `ClaudeMCPProvider`.
+
+Organization profiles carry explicit `owner`, `admin`, or `member` roles. All
+members can work leads; only owners and admins can change workspace defaults or
+member roles. Only owners can grant owner access, and the last owner cannot be
+demoted. Application role changes are recorded in the tenant audit history;
+migration promotions are recorded as system entries. Invitations and email
+delivery are intentionally external deployment concerns until a reviewed
+provider is selected. The current profile model intentionally supports one
+organization per Auth user; there is no organization switcher, invitation
+acceptance, or member deactivation flow in this release. Use Supabase Admin or
+a reviewed invitation service for controlled team provisioning until those
+flows are added.
 
 Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
 returns immediately. The durable `ingest-lead` function then fetches up to five
@@ -354,7 +368,8 @@ Then:
 
 ## Current scope
 
-The initial lead-workbench module, self-service authentication flow, and durable
-Apollo/Firecrawl/AI ingestion workflow are included under
-`src/features/lead-workbench` and `src/inngest`. Billing, invitations/roles,
-and a production MCP deployment remain separately reviewed concerns.
+The initial lead-workbench module, self-service authentication flow, explicit
+organization governance, and durable Apollo/Firecrawl/AI ingestion workflow are
+included under `src/features/lead-workbench` and `src/inngest`. Billing,
+invitation email delivery, and a production MCP deployment remain separately
+reviewed concerns.

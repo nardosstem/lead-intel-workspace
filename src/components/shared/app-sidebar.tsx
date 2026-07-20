@@ -30,7 +30,7 @@ const navigation = [
   { label: "Settings", href: "/leads?view=settings", icon: Settings, enabled: true },
 ] as const;
 
-export function AppSidebar() {
+export function AppSidebar({ organizationName }: Readonly<{ organizationName: string | null }>) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -43,7 +43,7 @@ export function AppSidebar() {
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="truncate text-sm font-semibold">Lead Intel</p>
-            <p className="truncate text-xs text-muted-foreground">Workspace</p>
+            <p className="truncate text-xs text-muted-foreground">{organizationName ?? "Workspace"}</p>
           </div>
         </div>
       </SidebarHeader>

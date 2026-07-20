@@ -22,6 +22,11 @@ export type AuditChanges = Readonly<Record<string, unknown>>;
 export type AuditMetadata = Readonly<Record<string, unknown>>;
 
 export const pipelineStageEnum = pgEnum("pipeline_stage", pipelineStages);
+export const organizationRoleEnum = pgEnum("organization_role", [
+  "owner",
+  "admin",
+  "member",
+] as const);
 
 export const organizations = pgTable(
   "organizations",
@@ -69,6 +74,7 @@ export const users = pgTable(
     email: varchar("email", { length: 320 }).notNull(),
     fullName: varchar("full_name", { length: 160 }),
     avatarUrl: text("avatar_url"),
+    role: organizationRoleEnum("role").notNull().default("member"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -297,6 +303,7 @@ export type Organization = typeof organizations.$inferSelect;
 export type NewOrganization = typeof organizations.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type OrganizationRole = (typeof organizationRoleEnum.enumValues)[number];
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
 export type Company = typeof companies.$inferSelect;

@@ -135,7 +135,21 @@ async function verifyBoundaries() {
     `;
     assert(leaked[0]?.count === 0, "Boundary verification rows were not rolled back.");
 
-    console.log("Database boundary checks passed: tenant FKs, cascade deletes, and rollback cleanup.");
+    const memberships = await client`
+      select organization_id,
+        count(*)::int as members,
+        count(*) filter (where role = 'owner')::int as owners
+      from public.users
+      group by organization_id
+    `;
+    for (const membership of memberships) {
+      assert(
+        Number(membership.members) === 0 || Number(membership.owners) > 0,
+        `Organization ${membership.organization_id} has no owner.`,
+      );
+    }
+
+    console.log("Database boundary checks passed: tenant FKs, cascade deletes, rollback cleanup, and owner coverage.");
   } finally {
     await client.end();
   }
