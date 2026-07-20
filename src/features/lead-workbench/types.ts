@@ -62,6 +62,7 @@ export type AuditRecord = {
   actorName: string | null;
   actorEmail: string | null;
   changes: Record<string, unknown>;
+  metadata: Record<string, unknown>;
   createdAt: string;
 };
 

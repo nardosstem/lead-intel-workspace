@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { pipelineStages } from "@/lib/db/pipeline";
+import { isPublicHostname } from "@/lib/domains";
 
 export const organizationRoles = ["owner", "admin", "member"] as const;
 export type OrganizationRole = (typeof organizationRoles)[number];
@@ -36,6 +37,10 @@ const httpsPublicUrl = httpUrl.refine((value) => {
   );
 }, "Use a public HTTPS URL.");
 
+const publicCompanyUrl = httpUrl.refine((value) => {
+  return isPublicHostname(new URL(value).hostname);
+}, "Use a public company URL.");
+
 const optionalUrl = z.preprocess(
   (value) => (value === "" ? undefined : value),
   httpUrl.optional(),
@@ -54,7 +59,10 @@ const optionalText = (max: number) =>
 
 export const companyDataSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  website: optionalHttpsUrl,
+  website: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    publicCompanyUrl.optional(),
+  ),
   industry: optionalText(120),
   size: optionalText(80),
   location: optionalText(160),

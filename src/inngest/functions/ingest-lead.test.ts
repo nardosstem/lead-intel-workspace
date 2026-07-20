@@ -5,7 +5,7 @@ import { z } from "zod";
 import { ApolloApiError, ApolloConfigurationError } from "@/lib/apollo";
 import { AIProviderError } from "@/lib/ai";
 
-import { safeEnrichmentError, toWorkflowError } from "./ingest-lead";
+import { aiEnrichmentSchema, safeEnrichmentError, toWorkflowError } from "./ingest-lead";
 
 describe("lead ingestion workflow error policy", () => {
   it("stops retries for Apollo configuration and non-rate-limit client errors", () => {
@@ -24,5 +24,21 @@ describe("lead ingestion workflow error policy", () => {
   it("stores only safe error categories", () => {
     const error = new ApolloApiError("provider response included secret data", 403);
     expect(safeEnrichmentError(error)).toBe("ApolloApiError (HTTP 403)");
+  });
+
+  it("bounds AI enrichment pain points before persistence", () => {
+    const valid = {
+      icpScore: 84,
+      painPoints: ["a", "b", "c"],
+      outreachDraft: "Subject: A useful idea\\n\\nHello there",
+    };
+
+    expect(aiEnrichmentSchema.parse(valid)).toEqual(valid);
+    expect(() =>
+      aiEnrichmentSchema.parse({
+        ...valid,
+        painPoints: ["x".repeat(501), "b", "c"],
+      }),
+    ).toThrow(/maximum/i);
   });
 });

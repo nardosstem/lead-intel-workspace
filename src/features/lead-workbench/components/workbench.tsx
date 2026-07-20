@@ -440,7 +440,7 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
                   </time>
                 </summary>
                 <pre className="mt-3 overflow-auto rounded-lg bg-muted/50 p-3 text-xs leading-5 text-muted-foreground">
-                  {JSON.stringify(log.changes, null, 2)}
+                  {JSON.stringify({ changes: log.changes, metadata: log.metadata }, null, 2)}
                 </pre>
               </details>
             ))}

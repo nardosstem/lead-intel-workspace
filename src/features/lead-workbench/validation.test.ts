@@ -60,6 +60,12 @@ describe("lead input URL validation", () => {
         companyData: { name: "Acme", website: "http://localhost:3000" },
       }).success,
     ).toBe(false);
+    expect(
+      scoreIcpSchema.safeParse({
+        companyId: "10000000-0000-4000-8000-000000000001",
+        companyData: { name: "Acme", website: "http://acme.com" },
+      }).success,
+    ).toBe(true);
   });
 
   it("bounds persisted workspace defaults", () => {

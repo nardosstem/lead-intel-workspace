@@ -109,6 +109,7 @@ function toAuditRecord(row: {
     actorName: row.actorName,
     actorEmail: row.actorEmail,
     changes: row.log.changes,
+    metadata: row.log.metadata,
     createdAt: row.log.createdAt.toISOString(),
   };
 }

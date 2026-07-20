@@ -20,9 +20,9 @@ import {
   type LeadContext,
 } from "@/features/lead-workbench/server/context";
 
-const aiEnrichmentSchema = z.object({
+export const aiEnrichmentSchema = z.object({
   icpScore: z.number().int().min(0).max(100),
-  painPoints: z.array(z.string().trim().min(1)).length(3),
+  painPoints: z.array(z.string().trim().min(1).max(500)).length(3),
   outreachDraft: z.string().trim().min(1).max(12_000),
 });
 
@@ -30,6 +30,7 @@ type InitialLeadData = Readonly<{
   companyId: string;
   contactIds: string[];
   primaryContact: ApolloContactPayload | null;
+  skippedContactCount: number;
 }>;
 
 type EnrichmentData = z.infer<typeof aiEnrichmentSchema>;
@@ -291,6 +292,8 @@ async function saveInitialData(
         ),
       );
     const contactIds: string[] = [];
+    let primaryContact: ApolloContactPayload | null = null;
+    let skippedContactCount = 0;
 
     for (const contactPayload of batch.contacts) {
       const existingByApolloId = await (contactPayload.apolloId
@@ -312,6 +315,7 @@ async function saveInitialData(
         // Apollo can return a person already associated with another company
         // in this organization. Do not silently reassign that relationship or
         // create a duplicate against the org-wide Apollo ID constraint.
+        skippedContactCount += 1;
         continue;
       }
       if (existing) {
@@ -327,6 +331,7 @@ async function saveInitialData(
             );
         }
         contactIds.push(existing.id);
+        primaryContact ??= contactPayload;
         const existingContactPipeline = await tx
           .select({ id: pipeline.id })
           .from(pipeline)
@@ -367,6 +372,7 @@ async function saveInitialData(
       const contact = inserted[0];
       if (!contact) throw new Error("Apollo contact insert returned no row.");
       contactIds.push(contact.id);
+      primaryContact ??= contactPayload;
       existingContacts.push(contact);
 
       await tx
@@ -383,7 +389,8 @@ async function saveInitialData(
     return {
       companyId: persistedCompany.id,
       contactIds,
-      primaryContact: batch.contacts[0] ?? null,
+      primaryContact,
+      skippedContactCount,
     };
   }, { allowInactiveActor: true });
 }
@@ -488,93 +495,97 @@ export const ingestLead = inngest.createFunction(
         async () => scrapeDomain(apolloData.domain),
       );
 
-    const enrichment: EnrichmentData = await step.run(
-      "ai-enrichment",
-      async () => {
-        const provider = getAIProvider();
-        const primaryContact = initialData.primaryContact
-          ? JSON.stringify({
-              name: initialData.primaryContact.name,
-              title: initialData.primaryContact.title,
-              linkedin: initialData.primaryContact.linkedin,
-              notes: initialData.primaryContact.notes,
-            })
-          : "No primary contact was enriched.";
-        const scrapedMarkdown = scrape.markdown || "No website Markdown was available.";
+      const enrichment: EnrichmentData = await step.run(
+        "ai-enrichment",
+        async () => {
+          const provider = getAIProvider();
+          const primaryContact = initialData.primaryContact
+            ? JSON.stringify({
+                name: initialData.primaryContact.name,
+                title: initialData.primaryContact.title,
+                linkedin: initialData.primaryContact.linkedin,
+                notes: initialData.primaryContact.notes,
+              })
+            : "No primary contact was enriched.";
+          const scrapedMarkdown = scrape.markdown || "No website Markdown was available.";
 
-        const result = await provider.extractEntities({
-          text: [
-            "Enrich this lead for a founder-led sales workflow.",
-            `Company metadata: ${JSON.stringify(apolloData.company)}`,
-            `Primary contact: ${primaryContact}`,
-            `Website Markdown:\n${scrapedMarkdown}`,
-          ].join("\n\n"),
-          schema: aiEnrichmentSchema,
-          instructions:
-            "Return exactly three evidence-based pain points, an ICP score from 0-100, and a concise personalized first-draft outreach email. Clearly avoid unsupported claims and label uncertainty in the email when needed.",
-          context: {
+          const result = await provider.extractEntities({
+            text: [
+              "Enrich this lead for a founder-led sales workflow.",
+              `Company metadata: ${JSON.stringify(apolloData.company)}`,
+              `Primary contact: ${primaryContact}`,
+              `Website Markdown:\n${scrapedMarkdown}`,
+            ].join("\n\n"),
+            schema: aiEnrichmentSchema,
+            instructions:
+              "Return exactly three evidence-based pain points, an ICP score from 0-100, and a concise personalized first-draft outreach email. Clearly avoid unsupported claims and label uncertainty in the email when needed.",
+            context: {
+              organizationId: context.organizationId,
+              actorUserId: context.userId,
+              traceId: `lead-ingest:${context.organizationId}:${event.data.domain}`,
+            },
+          });
+
+          return result.data;
+        },
+      );
+
+      const saved = await step.run("save-enrichment", async () =>
+        withLeadMutationContext(context, async (tx) => {
+          const updated = await tx
+            .update(companies)
+            .set({
+              enrichmentStatus: "complete",
+              icpScore: enrichment.icpScore,
+              painPoints: enrichment.painPoints,
+              outreachDraft: enrichment.outreachDraft,
+              enrichedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(companies.id, initialData.companyId),
+                eq(companies.organizationId, context.organizationId),
+                eq(companies.enrichmentRunId, runId),
+                eq(companies.enrichmentStatus, "processing"),
+              ),
+            )
+            .returning({ id: companies.id });
+          if (!updated[0]) {
+            throw new NonRetriableError("Ingestion run no longer owns the company record.");
+          }
+
+          await tx.insert(auditLogs).values({
             organizationId: context.organizationId,
             actorUserId: context.userId,
-            traceId: `lead-ingest:${context.organizationId}:${event.data.domain}`,
-          },
-        });
+            action: "enrichment_complete",
+            entityType: "company",
+            entityId: initialData.companyId,
+            changes: {
+              icpScore: enrichment.icpScore,
+              painPoints: enrichment.painPoints,
+              outreachDraftGenerated: true,
+              scraped: Boolean(scrape.markdown),
+              scrapeWarning: scrape.warning ?? null,
+              contactsFound: initialData.contactIds.length,
+              contactsSkipped: initialData.skippedContactCount,
+              runId,
+            },
+            metadata: {
+              source: "apollo-firecrawl-inngest",
+              domain: apolloData.domain,
+              contactCount: initialData.contactIds.length,
+              skippedContactCount: initialData.skippedContactCount,
+            },
+          });
 
-        return result.data;
-      },
-    );
-
-    const saved = await step.run("save-enrichment", async () =>
-      withLeadMutationContext(context, async (tx) => {
-        const updated = await tx
-          .update(companies)
-          .set({
-            enrichmentStatus: "complete",
-            icpScore: enrichment.icpScore,
-            painPoints: enrichment.painPoints,
-            outreachDraft: enrichment.outreachDraft,
-            enrichedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(companies.id, initialData.companyId),
-              eq(companies.organizationId, context.organizationId),
-              eq(companies.enrichmentRunId, runId),
-              eq(companies.enrichmentStatus, "processing"),
-            ),
-          )
-          .returning({ id: companies.id });
-        if (!updated[0]) {
-          throw new NonRetriableError("Ingestion run no longer owns the company record.");
-        }
-
-        await tx.insert(auditLogs).values({
-          organizationId: context.organizationId,
-          actorUserId: context.userId,
-          action: "enrichment_complete",
-          entityType: "company",
-          entityId: initialData.companyId,
-          changes: {
-            icpScore: enrichment.icpScore,
-            painPoints: enrichment.painPoints,
-            outreachDraftGenerated: true,
-            scraped: Boolean(scrape.markdown),
-            scrapeWarning: scrape.warning ?? null,
-            runId,
-          },
-          metadata: {
-            source: "apollo-firecrawl-inngest",
-            domain: apolloData.domain,
-            contactCount: initialData.contactIds.length,
-          },
-        });
-
-        return updated[0];
-      }),
-    );
+          return updated[0];
+        }),
+      );
 
       return {
         companyId: saved.id,
         contactsFound: initialData.contactIds.length,
+        contactsSkipped: initialData.skippedContactCount,
         icpScore: enrichment.icpScore,
         scrapeWarning: scrape.warning ?? null,
       };
