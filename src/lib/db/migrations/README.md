@@ -32,3 +32,8 @@ Migration `0007_*.sql` adds an organization-scoped enrichment run token and
 sanitized failure fields. Inngest writes the token before provider work and
 requires it for completion/failure updates, so stale retries cannot overwrite
 a newer run or regress a completed company.
+
+Migration `0008_*.sql` stores AI research, ICP rationale/signals, call prep,
+and contact-specific outreach drafts. These are written through tenant-scoped
+server actions, so the normal database audit triggers retain the before/after
+record of each generated work product.

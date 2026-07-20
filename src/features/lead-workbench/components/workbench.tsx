@@ -912,13 +912,41 @@ export function LeadWorkbench({
                   </ul>
                 </div>
               )}
+              {selectedCompany.researchSummary ? (
+                <details className="rounded-lg border p-4 text-sm" open>
+                  <summary className="cursor-pointer font-medium">Company research</summary>
+                  <p className="mt-3 whitespace-pre-wrap text-muted-foreground">{selectedCompany.researchSummary}</p>
+                  {selectedCompany.researchSignals.length > 0 ? (
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
+                      {selectedCompany.researchSignals.map((signal) => <li key={signal}>{signal}</li>)}
+                    </ul>
+                  ) : null}
+                </details>
+              ) : null}
+              {selectedCompany.icpRationale ? (
+                <details className="rounded-lg border p-4 text-sm">
+                  <summary className="cursor-pointer font-medium">ICP rationale</summary>
+                  <p className="mt-3 whitespace-pre-wrap text-muted-foreground">{selectedCompany.icpRationale}</p>
+                  {selectedCompany.icpSignals.length > 0 ? (
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
+                      {selectedCompany.icpSignals.map((signal) => <li key={signal}>{signal}</li>)}
+                    </ul>
+                  ) : null}
+                </details>
+              ) : null}
+              {selectedCompany.callPrep ? (
+                <details className="rounded-lg border p-4 text-sm">
+                  <summary className="cursor-pointer font-medium">Call preparation</summary>
+                  <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap font-sans text-muted-foreground">{selectedCompany.callPrep}</pre>
+                </details>
+              ) : null}
               {selectedCompany.outreachDraft && (
                 <details className="rounded-lg border p-4 text-sm">
                   <summary className="cursor-pointer font-medium">Generated outreach draft</summary>
                   <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-muted-foreground">{selectedCompany.outreachDraft}</pre>
                 </details>
               )}
-              <AiActionButtons company={selectedCompany} />
+              <AiActionButtons company={selectedCompany} onCompleted={refresh} />
               <DialogFooter>
                 <Button type="button" variant="destructive" onClick={() => confirmDeleteCompany(selectedCompany)}>Delete</Button>
                 <Button
@@ -951,10 +979,17 @@ export function LeadWorkbench({
                 <p><span className="text-muted-foreground">LinkedIn:</span> {selectedContact.linkedin ?? "—"}</p>
                 <p><span className="text-muted-foreground">Notes:</span> {selectedContact.notes ?? "—"}</p>
               </div>
+              {selectedContact.outreachDraft ? (
+                <details className="rounded-lg border p-4 text-sm" open>
+                  <summary className="cursor-pointer font-medium">Generated outreach draft</summary>
+                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-muted-foreground">{selectedContact.outreachDraft}</pre>
+                </details>
+              ) : null}
               {data.companies.find((company) => company.id === selectedContact.companyId) && (
                 <AiActionButtons
                   company={data.companies.find((company) => company.id === selectedContact.companyId)!}
                   contact={selectedContact}
+                  onCompleted={refresh}
                 />
               )}
               <DialogFooter>

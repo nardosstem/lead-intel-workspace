@@ -50,9 +50,11 @@ function isActionResponse(
 export function AiActionButtons({
   company,
   contact,
+  onCompleted,
 }: Readonly<{
   company: CompanyRecord;
   contact?: ContactRecord;
+  onCompleted?: () => void;
 }>) {
   const [isPending, startTransition] = useTransition();
   const [resultTitle, setResultTitle] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export function AiActionButtons({
             ? data.prep
             : JSON.stringify(data, null, 2),
       );
+      onCompleted?.();
       toast.success(`${action} is ready`);
     });
   }
@@ -101,7 +104,7 @@ export function AiActionButtons({
           disabled={isPending || !company.website}
           title={company.website ? undefined : "Add a website first"}
           onClick={() =>
-            run("Company research", () => researchCompany({ websiteUrl: company.website }))
+            run("Company research", () => researchCompany({ companyId: company.id, websiteUrl: company.website }))
           }
         >
           <FlaskConical className="size-4" aria-hidden="true" />
@@ -113,7 +116,7 @@ export function AiActionButtons({
           className="justify-start"
           disabled={isPending}
           onClick={() =>
-            run("ICP score", () => scoreICP({ companyData: details }))
+            run("ICP score", () => scoreICP({ companyId: company.id, companyData: details }))
           }
         >
           <Sparkles className="size-4" aria-hidden="true" />
@@ -125,7 +128,7 @@ export function AiActionButtons({
           className="justify-start"
           disabled={isPending}
           onClick={() =>
-            run("Call prep", () => generateCallPrep({ companyData: details }))
+            run("Call prep", () => generateCallPrep({ companyId: company.id, companyData: details }))
           }
         >
           <FileText className="size-4" aria-hidden="true" />
@@ -140,6 +143,7 @@ export function AiActionButtons({
             onClick={() =>
               run("Outreach draft", () =>
                 draftOutreach({
+                  contactId: contact.id,
                   contactData: {
                     name: contact.name,
                     title: contact.title ?? undefined,

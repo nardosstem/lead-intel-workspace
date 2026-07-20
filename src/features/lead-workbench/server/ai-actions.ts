@@ -1,11 +1,14 @@
 "use server";
 
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { AIProviderError } from "@/lib/ai";
 
 import { getAIProvider } from "@/lib/ai/server";
+import { companies, contacts } from "@/lib/db";
 import { requireLeadContext } from "./context";
+import { withLeadMutationContext, type LeadContext } from "./context";
 import {
   callPrepSchema,
   draftOutreachSchema,
@@ -55,6 +58,36 @@ export type ScoreResult = z.infer<typeof scoreResultSchema> & {
   model?: string;
 };
 
+async function persistCompanyAi(
+  context: LeadContext,
+  companyId: string,
+  values: Partial<typeof companies.$inferInsert>,
+): Promise<void> {
+  await withLeadMutationContext(context, async (tx) => {
+    const updated = await tx
+      .update(companies)
+      .set(values)
+      .where(and(eq(companies.id, companyId), eq(companies.organizationId, context.organizationId)))
+      .returning({ id: companies.id });
+    if (!updated[0]) throw new Error("Company not found in the current organization.");
+  });
+}
+
+async function persistContactAi(
+  context: LeadContext,
+  contactId: string,
+  values: Partial<typeof contacts.$inferInsert>,
+): Promise<void> {
+  await withLeadMutationContext(context, async (tx) => {
+    const updated = await tx
+      .update(contacts)
+      .set(values)
+      .where(and(eq(contacts.id, contactId), eq(contacts.organizationId, context.organizationId)))
+      .returning({ id: contacts.id });
+    if (!updated[0]) throw new Error("Contact not found in the current organization.");
+  });
+}
+
 export async function researchCompany(
   input: unknown,
 ): Promise<ActionResult<ResearchResult>> {
@@ -65,13 +98,18 @@ export async function researchCompany(
 
   try {
     const context = await requireLeadContext();
-    const result = await getAIProvider().extractEntities({
+      const result = await getAIProvider().extractEntities({
       text: `Research the company website at ${parsed.data.websiteUrl}. Return a concise company summary, likely operational or commercial pain points, and evidence signals. Fetch only public information available at that URL.`,
       schema: researchResultSchema,
       instructions:
         "Use only public, non-sensitive information. Do not invent facts. Keep each pain point and signal concise.",
-      context,
-    });
+        context,
+      });
+      await persistCompanyAi(context, parsed.data.companyId, {
+        researchSummary: result.data.summary,
+        researchPainPoints: result.data.painPoints,
+        researchSignals: result.data.signals,
+      });
 
     return {
       ok: true,
@@ -96,13 +134,18 @@ export async function scoreICP(
 
   try {
     const context = await requireLeadContext();
-    const result = await getAIProvider().extractEntities({
+      const result = await getAIProvider().extractEntities({
       text: `Score this company against the workspace's ideal customer profile. Company data: ${JSON.stringify(parsed.data.companyData)}`,
       schema: scoreResultSchema,
       instructions:
         "Return a calibrated 0-100 score, a short rationale, and the strongest positive or negative signals. Be explicit about uncertainty.",
-      context,
-    });
+        context,
+      });
+      await persistCompanyAi(context, parsed.data.companyId, {
+        icpScore: Math.round(result.data.score),
+        icpRationale: result.data.rationale,
+        icpSignals: result.data.signals,
+      });
 
     return {
       ok: true,
@@ -127,7 +170,7 @@ export async function draftOutreach(
 
   try {
     const context = await requireLeadContext();
-    const result = await getAIProvider().generateDraft({
+      const result = await getAIProvider().generateDraft({
       purpose: "Write an initial concise outreach email to this contact.",
       sourceText: JSON.stringify({
         contact: parsed.data.contactData,
@@ -136,8 +179,12 @@ export async function draftOutreach(
       instructions:
         "Return only the email copy. Include a clear subject line and a low-friction call to action. Do not claim an existing relationship or invent company facts.",
       tone: "specific, respectful, concise, founder-led",
-      context,
-    });
+        context,
+      });
+      await persistContactAi(context, parsed.data.contactId, {
+        outreachDraft: result.data,
+        outreachDraftAt: new Date(),
+      });
 
     return {
       ok: true,
@@ -158,14 +205,17 @@ export async function generateCallPrep(
 
   try {
     const context = await requireLeadContext();
-    const result = await getAIProvider().generateDraft({
+      const result = await getAIProvider().generateDraft({
       purpose: "Create a compact call preparation sheet for this company.",
       sourceText: JSON.stringify(parsed.data.companyData),
       instructions:
         "Return sections for company context, likely priorities, discovery questions, risks, and a suggested next step. Use bullets and clearly label assumptions.",
       tone: "practical, evidence-aware, concise",
-      context,
-    });
+        context,
+      });
+      await persistCompanyAi(context, parsed.data.companyId, {
+        callPrep: result.data,
+      });
 
     return {
       ok: true,

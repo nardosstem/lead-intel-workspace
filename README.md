@@ -110,6 +110,10 @@ validation, CSV parser, AI actions, tables, forms, pipeline board, audit view,
 and settings view are kept inside that feature boundary. `src/app/leads` is a
 thin route composition layer.
 
+AI research, ICP scoring, call preparation, and outreach drafts persist to the
+tenant-scoped lead records through audited server mutations; the UI refreshes
+the detail workspace after background ingestion and exposes retryable failures.
+
 Route files compose features and own Next.js concerns. Domain validation,
 queries, mutations, services, and feature-specific UI live under a single
 `src/features/<feature>` boundary. Cross-feature imports should go through an

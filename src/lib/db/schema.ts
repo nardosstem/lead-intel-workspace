@@ -123,6 +123,21 @@ export const companies = pgTable(
     enrichmentError: varchar("enrichment_error", { length: 1000 }),
     enrichmentErrorAt: timestamp("enrichment_error_at", { withTimezone: true }),
     icpScore: integer("icp_score"),
+    icpRationale: text("icp_rationale"),
+    icpSignals: jsonb("icp_signals")
+      .$type<ReadonlyArray<string>>()
+      .notNull()
+      .default([]),
+    researchSummary: text("research_summary"),
+    researchPainPoints: jsonb("research_pain_points")
+      .$type<ReadonlyArray<string>>()
+      .notNull()
+      .default([]),
+    researchSignals: jsonb("research_signals")
+      .$type<ReadonlyArray<string>>()
+      .notNull()
+      .default([]),
+    callPrep: text("call_prep"),
     painPoints: jsonb("pain_points")
       .$type<ReadonlyArray<string>>()
       .notNull()
@@ -180,6 +195,8 @@ export const contacts = pgTable(
     email: varchar("email", { length: 320 }),
     linkedin: varchar("linkedin", { length: 500 }),
     notes: text("notes"),
+    outreachDraft: text("outreach_draft"),
+    outreachDraftAt: timestamp("outreach_draft_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

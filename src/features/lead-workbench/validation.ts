@@ -104,19 +104,23 @@ export const updatePipelineSchema = z.object({
 });
 
 export const researchCompanySchema = z.object({
+  companyId: z.uuid(),
   websiteUrl: httpsPublicUrl,
 });
 
 export const scoreIcpSchema = z.object({
+  companyId: z.uuid(),
   companyData: companyDataSchema,
 });
 
 export const draftOutreachSchema = z.object({
+  contactId: z.uuid(),
   contactData: contactDataSchema,
   companyData: companyDataSchema,
 });
 
 export const callPrepSchema = z.object({
+  companyId: z.uuid(),
   companyData: companyDataSchema,
 });
 

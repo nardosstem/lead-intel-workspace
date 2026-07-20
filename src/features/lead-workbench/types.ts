@@ -12,6 +12,12 @@ export type CompanyRecord = {
   enrichmentStatus: string;
   enrichmentError: string | null;
   icpScore: number | null;
+  icpRationale: string | null;
+  icpSignals: string[];
+  researchSummary: string | null;
+  researchPainPoints: string[];
+  researchSignals: string[];
+  callPrep: string | null;
   painPoints: string[];
   outreachDraft: string | null;
   enrichedAt: string | null;
@@ -28,6 +34,7 @@ export type ContactRecord = {
   email: string | null;
   linkedin: string | null;
   notes: string | null;
+  outreachDraft: string | null;
   createdAt: string;
   updatedAt: string;
 };
