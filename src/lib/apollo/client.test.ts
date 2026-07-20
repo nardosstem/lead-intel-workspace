@@ -118,6 +118,31 @@ describe("Apollo client", () => {
     expect(result.contacts[0]?.linkedin).toBeNull();
   });
 
+  it("drops malformed provider emails before persistence", async () => {
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async (input) =>
+        jsonResponse(
+          String(input).includes("api_search")
+            ? { people: [{ id: "person-1", name: "Person 1" }] }
+            : { matches: [{ id: "person-1", name: "Person 1", email: "not-an-email" }] },
+        ),
+    });
+
+    const result = await ingestApolloLeads("acme.com", ["CEO"], client);
+    expect(result.contacts[0]?.email).toBeNull();
+  });
+
+  it("rejects oversized provider fields before they reach the database", async () => {
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async () =>
+        jsonResponse({ people: [{ id: "person-1", name: "x".repeat(161) }] }),
+    });
+
+    await expect(client.searchDomain("acme.com", ["CEO"])).rejects.toThrow(/too big|maximum/i);
+  });
+
   it("ignores enrichment records that were not requested", async () => {
     const client = new ApolloClient({
       apiKey: "apollo-test-key",

@@ -8,41 +8,41 @@ const APOLLO_BASE_URL = "https://api.apollo.io";
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_APOLLO_RESPONSE_BYTES = 2_000_000;
 
-const nullableString = z.string().nullable().optional();
+const nullableString = (max: number) => z.string().max(max).nullable().optional();
 
 const apolloOrganizationSchema = z
   .object({
-    name: nullableString,
-    domain: nullableString,
-    primary_domain: nullableString,
-    website_url: nullableString,
-    linkedin_url: nullableString,
-    industry: nullableString,
+    name: nullableString(200),
+    domain: nullableString(253),
+    primary_domain: nullableString(253),
+    website_url: nullableString(2_048),
+    linkedin_url: nullableString(2_048),
+    industry: nullableString(120),
     estimated_num_employees: z.number().nullable().optional(),
     employee_count: z.number().nullable().optional(),
-    raw_address: nullableString,
-    city: nullableString,
-    state: nullableString,
-    country: nullableString,
+    raw_address: nullableString(500),
+    city: nullableString(120),
+    state: nullableString(120),
+    country: nullableString(120),
   })
   .passthrough();
 
 const apolloPersonSchema = z
   .object({
-    id: z.string().min(1),
-    first_name: nullableString,
-    last_name: nullableString,
-    name: nullableString,
-    title: nullableString,
-    email: nullableString,
-    email_status: nullableString,
-    linkedin_url: nullableString,
-    organization_id: nullableString,
-    organization_name: nullableString,
+    id: z.string().min(1).max(160),
+    first_name: nullableString(80),
+    last_name: nullableString(80),
+    name: nullableString(160),
+    title: nullableString(160),
+    email: nullableString(320),
+    email_status: nullableString(80),
+    linkedin_url: nullableString(2_048),
+    organization_id: nullableString(160),
+    organization_name: nullableString(200),
     organization: apolloOrganizationSchema.nullable().optional(),
-    city: nullableString,
-    state: nullableString,
-    country: nullableString,
+    city: nullableString(120),
+    state: nullableString(120),
+    country: nullableString(120),
   })
   .passthrough();
 
@@ -127,31 +127,52 @@ export function normalizeDomain(value: string): string {
 function toWebsite(value: string | null | undefined, domain: string): string {
   const candidate = value?.trim();
   if (candidate) {
-    return /^https?:\/\//.test(candidate) ? candidate : `https://${candidate}`;
+    const withProtocol = /^https?:\/\//i.test(candidate)
+      ? candidate
+      : `https://${candidate}`;
+    try {
+      const url = new URL(withProtocol);
+      if (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        !url.username &&
+        !url.password &&
+        url.toString().length <= 500
+      ) {
+        return url.toString();
+      }
+    } catch {
+      // Fall through to the normalized search domain.
+    }
   }
   return `https://${domain}`;
 }
 
 function toName(person: ApolloPerson): string | null {
   const explicitName = person.name?.trim();
-  if (explicitName) return explicitName;
+  if (explicitName && explicitName.length <= 160) return explicitName;
 
   const composed = [person.first_name, person.last_name]
     .filter((part): part is string => Boolean(part?.trim()))
     .join(" ")
     .trim();
 
-  return composed || null;
+  return composed && composed.length <= 160 ? composed : null;
 }
 
 function toLocation(organization: ApolloOrganization | undefined): string | null {
   if (!organization) return null;
-  if (organization.raw_address?.trim()) return organization.raw_address.trim();
+  if (organization.raw_address?.trim()) return organization.raw_address.trim().slice(0, 160);
 
   const parts = [organization.city, organization.state, organization.country]
     .filter((part): part is string => Boolean(part?.trim()))
     .map((part) => part.trim());
-  return parts.length ? parts.join(", ") : null;
+  return parts.length ? parts.join(", ").slice(0, 160) : null;
+}
+
+function toEmail(value: string | null | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate || candidate.length > 320) return null;
+  return z.email().safeParse(candidate).success ? candidate : null;
 }
 
 function toLinkedIn(value: string | null | undefined): string | null {
@@ -169,7 +190,8 @@ function toLinkedIn(value: string | null | undefined): string | null {
     ) {
       return null;
     }
-    return url.toString();
+    const normalized = url.toString();
+    return normalized.length <= 500 ? normalized : null;
   } catch {
     return null;
   }
@@ -181,10 +203,11 @@ function toCompanyPayload(
 ): ApolloCompanyPayload {
   const personWithOrganization = people.find((person) => person.organization);
   const organization = personWithOrganization?.organization;
-  const organizationName =
+  const organizationName = (
     organization?.name?.trim() ||
     people.find((person) => person.organization_name?.trim())?.organization_name?.trim() ||
-    domain;
+    domain
+  ).slice(0, 200);
   const employeeCount = organization?.estimated_num_employees ?? organization?.employee_count;
 
   return {
@@ -193,7 +216,7 @@ function toCompanyPayload(
       organization?.website_url ?? organization?.primary_domain ?? organization?.domain,
       domain,
     ),
-    industry: organization?.industry?.trim() || null,
+    industry: organization?.industry?.trim().slice(0, 120) || null,
     size: typeof employeeCount === "number" ? String(employeeCount) : null,
     location: toLocation(organization ?? undefined),
   };
@@ -207,10 +230,10 @@ function toContactPayload(person: ApolloPerson): ApolloContactPayload | null {
     apolloId: person.id,
     name,
     title: person.title?.trim() || null,
-    email: person.email?.trim() || null,
+    email: toEmail(person.email),
     linkedin: toLinkedIn(person.linkedin_url),
     notes: person.email_status
-      ? `Apollo email status: ${person.email_status}`
+      ? `Apollo email status: ${person.email_status.slice(0, 80)}`
       : null,
   };
 }
