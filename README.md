@@ -67,8 +67,10 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run e2e` | Run Playwright browser smoke/accessibility coverage (Chromium required) |
 | `npm test` | Run Apollo, Firecrawl, and Inngest contract tests |
 
-GitHub Actions runs `npm test`, `npm run check`, and `npm run build` for pushes
-to `main` and pull requests.
+GitHub Actions runs `npm test`, `npm run check`, `npm run build`, and the
+Chromium browser suite for pushes to `main` and pull requests. Provider-backed
+and authenticated staging tests remain a separate deployment gate because CI
+does not receive production credentials.
 CSV imports are capped at 5 MB and 500 rows; Next Server Actions allow a 6 MB
 bounded request to accommodate serialization overhead.
 
