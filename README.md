@@ -87,10 +87,12 @@ authenticated Server Action integration suite against its ephemeral PostgreSQL
 service. Provider-backed
 and authenticated staging tests remain a separate deployment gate because CI
 does not receive production credentials.
-CSV imports are capped at 5 MB and 500 rows. Valid rows commit independently
-through database savepoints, while duplicate or invalid rows return source-row
-errors; Next Server Actions allow a 6 MB bounded request to accommodate
-serialization overhead.
+CSV imports are capped at 5 MB and 500 rows. Company websites are optional, but
+when supplied they must be public HTTP(S) URLs; private/reserved hosts are
+rejected before persistence. Valid rows commit independently through database
+savepoints, while duplicate or invalid rows return source-row errors; Next
+Server Actions allow a 6 MB bounded request to accommodate serialization
+overhead.
 
 Browser coverage is kept separate because it needs a local browser binary and
 authenticated staging credentials for protected lead-workbench flows. Run

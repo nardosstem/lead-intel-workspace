@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  companyInputSchema,
   contactInputSchema,
   inviteMemberSchema,
   isInvitationRole,
@@ -23,6 +24,24 @@ describe("lead input URL validation", () => {
         linkedin: "javascript:alert(1)",
       }).success,
     ).toBe(false);
+    expect(
+      companyInputSchema.safeParse({
+        name: "Internal service",
+        website: "http://localhost:3000",
+      }).success,
+    ).toBe(false);
+    expect(
+      companyInputSchema.safeParse({
+        name: "Private service",
+        website: "https://192.168.1.10",
+      }).success,
+    ).toBe(false);
+    expect(
+      companyInputSchema.safeParse({
+        name: "Public company",
+        website: "http://acme.com",
+      }).success,
+    ).toBe(true);
     expect(
       researchCompanySchema.safeParse({ companyId: "10000000-0000-4000-8000-000000000001", websiteUrl: "http://localhost:8787" }).success,
     ).toBe(false);

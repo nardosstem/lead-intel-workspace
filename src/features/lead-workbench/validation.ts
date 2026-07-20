@@ -36,13 +36,9 @@ const httpsPublicUrl = httpUrl.refine((value) => {
 }, "Use a public HTTPS URL.");
 
 const publicCompanyUrl = httpUrl.refine((value) => {
-  return isPublicHostname(new URL(value).hostname);
+  const url = new URL(value);
+  return !/^https?:$/i.test(url.protocol) || isPublicHostname(url.hostname);
 }, "Use a public company URL.");
-
-const optionalUrl = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  httpUrl.optional(),
-);
 
 const optionalHttpsUrl = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -76,7 +72,12 @@ const contactDataSchema = z.object({
 
 export const companyInputSchema = z.object({
   name: z.string().trim().min(1, "Company name is required").max(200),
-  website: optionalUrl,
+  // Company websites are later eligible for provider-backed research and
+  // ingestion, so reject private/reserved hosts at the persistence boundary.
+  website: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    publicCompanyUrl.optional(),
+  ),
   industry: optionalText(120),
   size: optionalText(80),
   location: optionalText(160),
