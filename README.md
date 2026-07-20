@@ -92,9 +92,11 @@ serialization overhead.
 Browser coverage is kept separate because it needs a local browser binary and
 authenticated staging credentials for protected lead-workbench flows. Run
 `npx playwright install chromium` once, then `npm run e2e`. The current suite
-covers the public authentication shell, keyboard-visible labels, dark mode, and
-anonymous route protection; add authenticated staging coverage before enabling
-provider-consuming tests in CI.
+covers the public authentication shell, keyboard-visible labels, dark mode,
+anonymous route protection, and an opt-in read-only authenticated workbench
+flow. Set `E2E_TEST_EMAIL` and `E2E_TEST_PASSWORD` only in a disposable staging
+environment to run the protected flow; CI skips it when those secrets are
+absent. Provider-consuming ingestion tests remain a separate gate.
 The unit coverage report has a conservative repository-wide baseline (35% lines,
 35% statements, 40% functions, and 30% branches): pure parsers, validation,
 provider adapters, and workflow policies are covered locally, while
@@ -366,6 +368,9 @@ environment:
   action references. Generate a suitable value with `openssl rand -base64 32`.
 - Run an authenticated two-organization CRUD/authorization test and one real
   Apollo → Firecrawl → MCP ingestion before enabling provider-consuming CI.
+- Run `E2E_TEST_EMAIL=<staging-user> E2E_TEST_PASSWORD=<staging-password> npm run e2e`
+  against staging and confirm the authenticated workbench flow passes without
+  using production data.
 - Verify the deployed `/api/health` endpoint reports `ok` after all required
   secrets and the database are available; `degraded` means a non-core provider
   or optional invitation dependency is not configured. A missing
