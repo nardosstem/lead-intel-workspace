@@ -62,7 +62,7 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:generate` | Generate SQL after a Drizzle schema change |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Inspect the configured database |
-| `npm run db:seed:leads` | Insert deterministic demo companies, contacts, and pipeline rows |
+| `npm run db:seed:leads` | Insert a deterministic demo workspace with 10 companies, 20 contacts, and pipeline rows |
 | `npm test` | Run Apollo, Firecrawl, and Inngest contract tests |
 
 GitHub Actions runs `npm test`, `npm run check`, and `npm run build` for pushes
@@ -146,10 +146,14 @@ Lead mutations set transaction-local actor and organization context. Database
 triggers on companies, contacts, and pipeline automatically append before/after
 JSON snapshots to `audit_logs`, including cascaded deletes.
 
-The seed script uses deterministic UUIDs and is safe to rerun with
-`npm run db:seed:leads`. It requires a migrated Supabase database. Because the
-seed data belongs to a demo organization, create or map a Supabase Auth profile
-to that organization before expecting it to appear for a signed-in user.
+The seed script creates a representative demo workspace with 10 companies, 20
+contacts, all eight pipeline stages, enrichment examples, follow-up dates, and
+deterministic UUIDs. It is safe to rerun with `npm run db:seed:leads`; existing
+deterministic fixtures are reconciled without duplicating rows, and the command
+reports inserted and updated records. It requires a migrated Supabase database.
+Because the seed data belongs to a demo organization, create or map a Supabase
+Auth profile to that organization before expecting it to appear for a signed-in
+user.
 
 ### Authentication and storage
 
@@ -159,6 +163,39 @@ to that organization before expecting it to appear for a signed-in user.
 - `auth/middleware.ts` refreshes sessions through `src/proxy.ts`, the Next.js 16
   replacement for the deprecated middleware file convention.
 - `auth/user.ts` exposes server-verified current-user helpers.
+
+#### Local demo user
+
+There is no preconfigured email or password, and the seed script cannot create
+Supabase Auth credentials. Create a test user in Supabase Dashboard under
+**Authentication → Users → Add user**. For example, use
+`demo@leadintel.local` and a strong, local-only password of your choice. If
+email confirmation is enabled, confirm the user before signing in.
+
+Then create the application profile that links that Auth user to the seeded
+organization. Run this in the Supabase SQL Editor, replacing the email if you
+used a different one:
+
+```sql
+insert into public.users (id, organization_id, email, full_name)
+select
+  id,
+  '10000000-0000-4000-8000-000000000001'::uuid,
+  email,
+  'Demo User'
+from auth.users
+where email = 'demo@leadintel.local'
+on conflict (id) do update
+set
+  organization_id = excluded.organization_id,
+  email = excluded.email,
+  full_name = excluded.full_name;
+```
+
+Passwords remain managed by Supabase Auth and are never stored in
+`public.users`. The application currently exposes the auth helpers and session
+refresh boundary but does not include a sign-in screen; use your existing auth
+entry point or add the sign-in UX before testing protected lead actions.
 
 The proxy only refreshes authentication state. It is not an authorization
 boundary. Every Server Function, Route Handler, and server-side service must
