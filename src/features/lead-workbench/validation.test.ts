@@ -28,6 +28,12 @@ describe("lead input URL validation", () => {
       researchCompanySchema.safeParse({ companyId: "10000000-0000-4000-8000-000000000001", websiteUrl: "https://[::1]" }).success,
     ).toBe(false);
     expect(
+      researchCompanySchema.safeParse({ companyId: "10000000-0000-4000-8000-000000000001", websiteUrl: "https://2130706433" }).success,
+    ).toBe(false);
+    expect(
+      researchCompanySchema.safeParse({ companyId: "10000000-0000-4000-8000-000000000001", websiteUrl: "https://192.168.1.10" }).success,
+    ).toBe(false);
+    expect(
       researchCompanySchema.safeParse({ companyId: "10000000-0000-4000-8000-000000000001", websiteUrl: "https://user:pass@acme.com" }).success,
     ).toBe(false);
   });

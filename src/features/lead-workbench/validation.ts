@@ -21,19 +21,9 @@ const httpUrl = z
   }, "URLs cannot include embedded credentials.");
 
 const httpsPublicUrl = httpUrl.refine((value) => {
-  const hostname = new URL(value).hostname.toLowerCase();
   return (
     new URL(value).protocol === "https:" &&
-    hostname !== "localhost" &&
-    hostname !== "0.0.0.0" &&
-    hostname !== "::1" &&
-    !hostname.includes(":") &&
-    !hostname.endsWith(".local") &&
-    !/^10(?:\.\d{1,3}){3}$/.test(hostname) &&
-    !/^127(?:\.\d{1,3}){3}$/.test(hostname) &&
-    !/^169\.254(?:\.\d{1,3}){2}$/.test(hostname) &&
-    !/^192\.168(?:\.\d{1,3}){2}$/.test(hostname) &&
-    !/^172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}$/.test(hostname)
+    isPublicHostname(new URL(value).hostname)
   );
 }, "Use a public HTTPS URL.");
 
