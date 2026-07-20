@@ -9,6 +9,7 @@ type BoundaryVerificationResult = Readonly<{
   contactRejected: boolean;
   pipelineRejected: boolean;
   cascadeWorked: boolean;
+  auditTriggerWorked: boolean | null;
 }>;
 
 class RollbackVerification extends Error {
@@ -44,6 +45,7 @@ async function verifyBoundaries() {
     companyB: randomUUID(),
     contactA: randomUUID(),
     pipelineA: randomUUID(),
+    userA: randomUUID(),
   };
   let result: BoundaryVerificationResult | null = null;
 
@@ -61,6 +63,35 @@ async function verifyBoundaries() {
             (${ids.organizationA}, 'Boundary Verification A', ${`boundary-a-${ids.organizationA}`}),
             (${ids.organizationB}, 'Boundary Verification B', ${`boundary-b-${ids.organizationB}`})
         `;
+
+        let auditTriggerAvailable = false;
+        const authPrivileges = await tx`
+          select has_table_privilege(current_user, 'auth.users', 'INSERT') as allowed
+        `;
+        if (authPrivileges[0]?.allowed === true) {
+          try {
+            await tx.savepoint(async (savepoint) => {
+              await savepoint`
+                insert into auth.users (id)
+                values (${ids.userA})
+              `;
+              await savepoint`
+                insert into public.users (id, organization_id, email, full_name, role)
+                values (${ids.userA}, ${ids.organizationA}, 'boundary-a@example.invalid', 'Boundary Owner', 'owner')
+              `;
+            });
+            auditTriggerAvailable = true;
+            await tx`
+              select
+                set_config('app.current_user_id', ${ids.userA}, true),
+                set_config('app.current_organization_id', ${ids.organizationA}, true)
+            `;
+          } catch {
+            // A managed Supabase auth schema may expose the table but deny
+            // writes. Boundary checks remain useful without actor attribution.
+          }
+        }
+
         await tx`
           insert into public.companies (id, organization_id, name, domain, status)
           values
@@ -111,7 +142,22 @@ async function verifyBoundaries() {
         `;
         const cascadeWorked = remaining[0]?.contacts === 0 && remaining[0]?.pipeline === 0;
 
-        throw new RollbackVerification({ contactRejected, pipelineRejected, cascadeWorked });
+        const auditTriggerWorked = auditTriggerAvailable
+          ? Number((await tx`
+              select count(*)::int as count
+              from public.audit_logs
+              where organization_id = ${ids.organizationA}
+                and actor_user_id = ${ids.userA}
+                and entity_type in ('companies', 'contacts', 'pipeline')
+            `)[0]?.count ?? 0) >= 4
+          : null;
+
+        throw new RollbackVerification({
+          contactRejected,
+          pipelineRejected,
+          cascadeWorked,
+          auditTriggerWorked,
+        });
       });
     } catch (error) {
       if (error instanceof RollbackVerification) {
@@ -127,6 +173,9 @@ async function verifyBoundaries() {
     assert(result.contactRejected, "Cross-organization contact target was accepted.");
     assert(result.pipelineRejected, "Cross-organization pipeline target was accepted.");
     assert(result.cascadeWorked, "Company deletion did not cascade to dependent records.");
+    if (result.auditTriggerWorked !== null) {
+      assert(result.auditTriggerWorked, "Lead audit triggers did not retain actor attribution.");
+    }
 
     const leaked = await client`
       select count(*)::int as count
@@ -149,7 +198,11 @@ async function verifyBoundaries() {
       );
     }
 
-    console.log("Database boundary checks passed: tenant FKs, cascade deletes, rollback cleanup, and owner coverage.");
+    console.log(
+      `Database boundary checks passed: tenant FKs, cascade deletes, rollback cleanup, owner coverage${
+        result.auditTriggerWorked === null ? " (managed auth writes unavailable; audit attribution skipped)" : ", and audit attribution"
+      }.`,
+    );
   } finally {
     await client.end();
   }
