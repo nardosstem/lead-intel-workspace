@@ -15,11 +15,21 @@ export class RolePolicyError extends Error {
  * can validate a requested change before opening a database mutation.
  */
 export function assertRoleChangeAllowed(input: Readonly<{
+  actorUserId: string;
   actorRole: "owner" | "admin";
+  targetUserId: string;
   targetRole: OrganizationRole;
   requestedRole: OrganizationRole;
   ownerCount: number;
 }>): void {
+  if (
+    input.actorRole === "owner" &&
+    input.actorUserId === input.targetUserId &&
+    input.targetRole === "owner" &&
+    input.requestedRole !== "owner"
+  ) {
+    throw new RolePolicyError("You cannot demote your own owner access.", "authorization");
+  }
   if (input.requestedRole === "owner" && input.actorRole !== "owner") {
     throw new RolePolicyError("Only the organization owner can grant owner access.", "authorization");
   }

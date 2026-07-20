@@ -71,8 +71,9 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:verify-boundaries` | Verify tenant foreign keys, cascades, and transactional cleanup against `DATABASE_URL` |
 | `npm run e2e` | Run Playwright browser smoke/accessibility coverage (Chromium required) |
 | `npm test` | Run provider, AI, domain, action, validation, and Inngest contract tests |
+| `npm run test:coverage` | Run the same suite with a V8 coverage report |
 
-GitHub Actions runs `npm test`, `npm run check`, `npm run build`, and the
+GitHub Actions runs the V8 coverage suite, `npm run check`, `npm run build`, and the
 Chromium browser suite for pushes to `main` and pull requests. Provider-backed
 and authenticated staging tests remain a separate deployment gate because CI
 does not receive production credentials.
@@ -87,6 +88,11 @@ authenticated staging credentials for protected lead-workbench flows. Run
 covers the public authentication shell, keyboard-visible labels, dark mode, and
 anonymous route protection; add authenticated staging coverage before enabling
 provider-consuming tests in CI.
+The unit coverage report has a conservative repository-wide baseline (35% lines,
+35% statements, 40% functions, and 30% branches): pure parsers, validation,
+provider adapters, and workflow policies are covered locally, while
+database-backed Server Actions and authenticated provider flows require the
+staging gates below.
 
 ## Architecture
 

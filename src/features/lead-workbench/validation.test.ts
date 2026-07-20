@@ -103,13 +103,17 @@ describe("organization governance validation", () => {
 
   it("prevents admins from granting owner access or changing owners", () => {
     expect(() => assertRoleChangeAllowed({
+      actorUserId: "owner-1",
       actorRole: "admin",
+      targetUserId: "user-2",
       targetRole: "member",
       requestedRole: "owner",
       ownerCount: 2,
     })).toThrowError(new RolePolicyError("Only the organization owner can grant owner access.", "authorization"));
     expect(() => assertRoleChangeAllowed({
+      actorUserId: "admin-1",
       actorRole: "admin",
+      targetUserId: "owner-2",
       targetRole: "owner",
       requestedRole: "admin",
       ownerCount: 2,
@@ -118,17 +122,29 @@ describe("organization governance validation", () => {
 
   it("prevents demoting the last owner", () => {
     expect(() => assertRoleChangeAllowed({
+      actorUserId: "owner-1",
       actorRole: "owner",
+      targetUserId: "owner-2",
       targetRole: "owner",
       requestedRole: "member",
       ownerCount: 1,
     })).toThrowError(/at least one owner/);
     expect(() => assertRoleChangeAllowed({
+      actorUserId: "owner-1",
       actorRole: "owner",
+      targetUserId: "owner-2",
       targetRole: "owner",
       requestedRole: "admin",
       ownerCount: 2,
     })).not.toThrow();
+    expect(() => assertRoleChangeAllowed({
+      actorUserId: "owner-1",
+      actorRole: "owner",
+      targetUserId: "owner-1",
+      targetRole: "owner",
+      requestedRole: "admin",
+      ownerCount: 2,
+    })).toThrowError(/cannot demote your own owner access/i);
   });
 
   it("prevents self-lockout and owner deactivation", () => {

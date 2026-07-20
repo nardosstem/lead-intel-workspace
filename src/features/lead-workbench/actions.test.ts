@@ -23,7 +23,21 @@ vi.mock("@/inngest/client", () => ({
 vi.mock("./server/context", () => ({ requireLeadContext: contextMock }));
 
 import { triggerDomainIngestion } from "./actions";
-import { importCompaniesCsv } from "./server/actions";
+import {
+  createCompany,
+  createContact,
+  deleteCompany,
+  deleteContact,
+  importCompaniesCsv,
+  inviteMember,
+  revokeInvitation,
+  updateCompany,
+  updateContact,
+  updateMemberRole,
+  updateMemberStatus,
+  updatePipeline,
+  updateWorkspaceSettings,
+} from "./server/actions";
 
 describe("triggerDomainIngestion", () => {
   beforeEach(() => {
@@ -70,5 +84,25 @@ describe("triggerDomainIngestion", () => {
       ok: false,
       error: "CSV contains an unterminated quoted field.",
     });
+  });
+
+  it("rejects invalid lead and workspace mutation payloads at the action boundary", async () => {
+    const results = await Promise.all([
+      createCompany({ name: "" }),
+      updateCompany({ id: "not-a-uuid", name: "Acme" }),
+      deleteCompany("not-a-uuid"),
+      createContact({ companyId: "not-a-uuid", name: "" }),
+      updateContact({ id: "not-a-uuid", companyId: "not-a-uuid", name: "Contact" }),
+      deleteContact("not-a-uuid"),
+      updatePipeline({ id: "not-a-uuid", stage: "unknown", nextFollowUpAt: null }),
+      updateWorkspaceSettings({ defaultStage: "unknown", followUpDays: 0 }),
+      updateMemberRole({ targetUserId: "not-a-uuid", role: "member" }),
+      updateMemberStatus({ targetUserId: "not-a-uuid", isActive: true }),
+      inviteMember({ email: "not-an-email", role: "member" }),
+      revokeInvitation("not-a-uuid"),
+    ]);
+
+    expect(results.every((result) => !result.ok)).toBe(true);
+    expect(contextMock).not.toHaveBeenCalled();
   });
 });

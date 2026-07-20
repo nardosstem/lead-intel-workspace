@@ -236,7 +236,9 @@ export async function updateMemberRole(
             ),
           );
         assertRoleChangeAllowed({
+          actorUserId: context.userId,
           actorRole: actor.role,
+          targetUserId: target.id,
           targetRole: target.role,
           requestedRole: parsed.data.role,
           ownerCount: Number(ownerCount[0]?.value ?? 0),
