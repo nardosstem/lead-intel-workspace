@@ -331,6 +331,12 @@ be completed in staging or the hosting environment:
 - Run an authenticated two-organization CRUD/authorization test and one real
   Apollo → Firecrawl → MCP ingestion before enabling provider-consuming CI.
 
+Latest local provider probes (2026-07-20) are intentionally recorded here:
+Firecrawl returned HTTP 200 for a public scrape, Apollo returned HTTP 403 for
+`mixed_people/api_search` with the configured key, and the configured Claude
+MCP localhost bridge was unreachable. The application therefore reports these
+provider failures safely rather than claiming autonomous enrichment is ready.
+
 ## Adding a feature
 
 Before implementation, read `AGENTS.md`, this README, and `requirements.txt`.
