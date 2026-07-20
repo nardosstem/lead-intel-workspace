@@ -345,7 +345,10 @@ Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
 returns immediately. The durable `ingest-lead` function then fetches up to five
 Apollo contacts, saves tenant-scoped records early, scrapes the company with
 Firecrawl, asks `IAIProvider` for ICP score/pain points/outreach, and saves the
-enrichment with an audit entry. Run the Inngest Dev Server locally when testing
+enrichment with an audit entry. Runs for the same organization/domain are
+serialized, and a ten-run function-wide concurrency ceiling protects external
+provider budgets during bulk submissions; queued runs remain durable in Inngest.
+Run the Inngest Dev Server locally when testing
 background execution (`npx inngest-cli@latest dev -u
 http://localhost:3000/api/inngest`); set `INNGEST_DEV=1` for the local app. The
 app serves functions at `/api/inngest`.

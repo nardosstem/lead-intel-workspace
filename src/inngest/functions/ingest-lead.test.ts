@@ -5,9 +5,28 @@ import { z } from "zod";
 import { ApolloApiError, ApolloConfigurationError } from "@/lib/apollo";
 import { AIProviderError } from "@/lib/ai";
 
-import { aiEnrichmentSchema, safeEnrichmentError, toWorkflowError } from "./ingest-lead";
+import {
+  aiEnrichmentSchema,
+  ingestLead,
+  safeEnrichmentError,
+  toWorkflowError,
+} from "./ingest-lead";
 
 describe("lead ingestion workflow error policy", () => {
+  it("serializes tenant/domain duplicates and caps provider pressure", () => {
+    expect(ingestLead.opts.concurrency).toEqual([
+      {
+        limit: 1,
+        key: "event.data.organizationId + '-' + event.data.domain",
+        scope: "fn",
+      },
+      {
+        limit: 10,
+        scope: "fn",
+      },
+    ]);
+  });
+
   it("stops retries for Apollo configuration and non-rate-limit client errors", () => {
     expect(toWorkflowError(new ApolloConfigurationError())).toBeInstanceOf(NonRetriableError);
     expect(toWorkflowError(new ApolloApiError("forbidden", 403))).toBeInstanceOf(NonRetriableError);

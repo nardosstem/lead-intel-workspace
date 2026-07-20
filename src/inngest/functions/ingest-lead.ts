@@ -465,11 +465,21 @@ export const ingestLead = inngest.createFunction(
     // idempotency window expires. Database-level matching below remains the
     // final safety boundary for retries.
     idempotency: "event.data.runId",
-    concurrency: {
-      limit: 1,
-      key: "event.data.organizationId + '-' + event.data.domain",
-      scope: "fn",
-    },
+    concurrency: [
+      {
+        // Keep duplicate submissions for one tenant/domain serialized. The
+        // database advisory lock remains the final idempotency boundary.
+        limit: 1,
+        key: "event.data.organizationId + '-' + event.data.domain",
+        scope: "fn",
+      },
+      {
+        // Bound provider pressure when a tenant imports many domains at once.
+        // Additional runs remain durable and are queued by Inngest.
+        limit: 10,
+        scope: "fn",
+      },
+    ],
     triggers: [{ event: leadIngestRequested }],
   },
   async ({ event, step }) => {
