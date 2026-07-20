@@ -56,6 +56,7 @@ QUALITY GATE
 - Add tests for new domain behavior, authorization boundaries, and important failure paths.
 - Keep `npm run test:coverage` runnable; use its report to prevent untested provider and validation regressions.
 - Keep a non-secret `/api/health` check available for deployment liveness and readiness; never make it a provider-credit probe.
+- Treat a missing `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` as a deployment warning; configure one stable value across production instances.
 - Run npm run lint, npm run typecheck, and npm run build before considering work complete.
 - CI must apply migrations, run the deterministic seed, and execute the database boundary verifier against ephemeral PostgreSQL.
 - Keep the repository free of generated demo assets, local secrets, build output, logs, and unused dependencies.

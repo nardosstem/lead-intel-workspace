@@ -17,6 +17,7 @@ export type HealthSnapshot = Readonly<{
     claudeMcp: HealthDependencyState;
     inngest: HealthDependencyState;
     invitations: HealthDependencyState;
+    serverActions: HealthDependencyState;
   }>;
 }>;
 
@@ -61,6 +62,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     claudeMcp: configured(process.env.CLAUDE_MCP_ENDPOINT),
     inngest: inngestState(),
     invitations: configured(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    serverActions: configured(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY),
   } as const;
   const hasMissingDependency = Object.values(checks).some((state) => state === "missing");
 

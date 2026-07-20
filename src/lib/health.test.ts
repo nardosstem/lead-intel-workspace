@@ -21,6 +21,7 @@ const configuredEnvironment = {
   INNGEST_EVENT_KEY: "event-key",
   INNGEST_SIGNING_KEY: "signing-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+  NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "server-actions-key",
   INNGEST_DEV: "",
 } as const;
 
@@ -50,6 +51,7 @@ describe("health readiness snapshot", () => {
         claudeMcp: "configured",
         inngest: "configured",
         invitations: "configured",
+        serverActions: "configured",
       },
     });
     expect(databaseMock).toHaveBeenCalledOnce();
