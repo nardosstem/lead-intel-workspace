@@ -198,8 +198,8 @@ user.
 #### Local demo user
 
 There is no preconfigured email or password, and the seed script cannot create
-Supabase Auth credentials. The `/login` route supports sign-in and self-service
-sign-up. Confirmation links use the `/auth/callback` PKCE exchange route and
+Supabase Auth credentials. The `/login` route supports sign-in, self-service
+sign-up, and password reset. Confirmation links use the `/auth/callback` PKCE exchange route and
 return to the requested workspace path. For local testing, use an address such as `demo@leadintel.local` and a
 strong, local-only password of your choice. If email confirmation is enabled,
 confirm the user before signing in.

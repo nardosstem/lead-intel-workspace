@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createBrowserSupabaseClient } from "@/lib/auth";
 
-type LoginMode = "sign-in" | "sign-up";
+type LoginMode = "sign-in" | "sign-up" | "forgot-password";
 
 export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
   const router = useRouter();
@@ -25,18 +25,34 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
       const password = String(formData.get("password") ?? "");
       const fullName = String(formData.get("fullName") ?? "").trim();
 
-      if (!email || !password) {
-        setError("Email and password are required.");
-        return;
-      }
-
-      if (password.length < 8) {
-        setError("Use a password with at least 8 characters.");
+      if (!email) {
+        setError("Email is required.");
         return;
       }
 
       try {
         const supabase = createBrowserSupabaseClient();
+        if (mode === "forgot-password") {
+          const resetResult = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/login/reset-password")}`,
+          });
+          if (resetResult.error) {
+            setError(resetResult.error.message);
+            return;
+          }
+          setMessage("If an account exists for that email, a password reset link is on its way.");
+          return;
+        }
+
+        if (!password) {
+          setError("Email and password are required.");
+          return;
+        }
+        if (password.length < 8) {
+          setError("Use a password with at least 8 characters.");
+          return;
+        }
+
         const result =
           mode === "sign-in"
             ? await supabase.auth.signInWithPassword({ email, password })
@@ -69,6 +85,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
   }
 
   const isSignUp = mode === "sign-up";
+  const isForgotPassword = mode === "forgot-password";
 
   return (
     <form action={submit} className="space-y-4" noValidate>
@@ -93,7 +110,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
           placeholder="you@company.com"
         />
       </div>
-      <div className="space-y-2">
+      {!isForgotPassword ? <div className="space-y-2">
         <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
@@ -105,7 +122,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
           minLength={8}
           required
         />
-      </div>
+      </div> : null}
       {error ? (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
           {error}
@@ -117,18 +134,31 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
         </p>
       ) : null}
       <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Please wait…" : isSignUp ? "Create account" : "Sign in"}
+        {isPending ? "Please wait…" : isForgotPassword ? "Send reset link" : isSignUp ? "Create account" : "Sign in"}
       </Button>
+      {mode === "sign-in" ? (
+        <button
+          type="button"
+          className="w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          onClick={() => {
+            setMode("forgot-password");
+            setError(null);
+            setMessage(null);
+          }}
+        >
+          Forgot your password?
+        </button>
+      ) : null}
       <button
         type="button"
         className="w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         onClick={() => {
-          setMode(isSignUp ? "sign-in" : "sign-up");
+          setMode(isForgotPassword ? "sign-in" : isSignUp ? "sign-in" : "sign-up");
           setError(null);
           setMessage(null);
         }}
       >
-        {isSignUp ? "Already have an account? Sign in" : "New here? Create an account"}
+        {isForgotPassword ? "Back to sign in" : isSignUp ? "Already have an account? Sign in" : "New here? Create an account"}
       </button>
     </form>
   );
