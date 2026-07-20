@@ -67,7 +67,7 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:generate` | Generate SQL after a Drizzle schema change |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Inspect the configured database |
-| `npm run db:seed:leads` | Insert a deterministic demo workspace with 10 companies, 20 contacts, and pipeline rows |
+| `npm run db:seed:leads` | Insert a deterministic demo workspace with 10 companies, 20 contacts, and pipeline rows (local/disposable staging only) |
 | `npm run db:verify-boundaries` | Verify tenant foreign keys, cascades, and transactional cleanup against `DATABASE_URL` |
 | `npm run e2e` | Run Playwright browser smoke/accessibility coverage (Chromium required) |
 | `npm test` | Run provider, AI, domain, action, validation, and Inngest contract tests |
@@ -193,6 +193,9 @@ contacts, all eight pipeline stages, enrichment examples, follow-up dates, and
 deterministic UUIDs. It is safe to rerun with `npm run db:seed:leads`; existing
 deterministic fixtures are reconciled without duplicating rows, and the command
 reports inserted and updated records. It requires a migrated Supabase database.
+The command refuses to run when `NODE_ENV=production` unless
+`ALLOW_DEMO_SEED=1` is set deliberately; never seed a production tenant or
+expose demo records to real users.
 Because the seed data belongs to a demo organization, create or map a Supabase
 Auth profile to that organization before expecting it to appear for a signed-in
 user.

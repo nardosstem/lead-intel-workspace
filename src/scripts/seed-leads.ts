@@ -268,6 +268,14 @@ const companySeeds: CompanySeed[] = [
   },
 ];
 
+function assertSafeSeedTarget(): void {
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_SEED !== "1") {
+    throw new Error(
+      "Refusing to seed demo leads in production. Use a disposable staging database or set ALLOW_DEMO_SEED=1 deliberately.",
+    );
+  }
+}
+
 const contactSeeds: ContactSeed[] = [
   {
     id: "30000000-0000-4000-8000-000000000001",
@@ -552,6 +560,8 @@ const contactSeeds: ContactSeed[] = [
 ];
 
 async function seed() {
+  assertSafeSeedTarget();
+
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required to seed leads.");
