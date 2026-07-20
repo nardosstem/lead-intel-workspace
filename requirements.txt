@@ -48,6 +48,7 @@ UI AND ACCESSIBILITY
 QUALITY GATE
 - Add tests for new domain behavior, authorization boundaries, and important failure paths.
 - Run npm run lint, npm run typecheck, and npm run build before considering work complete.
+- CI must apply migrations, run the deterministic seed, and execute the database boundary verifier against ephemeral PostgreSQL.
 - Keep the repository free of generated demo assets, local secrets, build output, logs, and unused dependencies.
 - Update README.md and .env.example whenever setup, architecture, commands, or configuration changes.
 

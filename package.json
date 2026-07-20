@@ -13,6 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "db:ci:prepare": "tsx src/scripts/prepare-ci-db.ts",
     "db:seed:leads": "tsx src/scripts/seed-leads.ts",
     "db:verify-boundaries": "tsx src/scripts/verify-db-boundaries.ts",
     "e2e": "playwright test"

@@ -367,6 +367,13 @@ Then:
   nearest application error boundary and must be reported without leaking
   sensitive details.
 
+CI starts an ephemeral PostgreSQL service, creates a minimal compatibility
+`auth.users` table without managing Supabase's real auth schema, applies every
+migration, seeds the deterministic lead fixtures, and runs the tenant-boundary
+verifier before building. This proves migration and database invariants in a
+repeatable environment; it does not replace authenticated Supabase staging
+tests.
+
 ## Current scope
 
 The initial lead-workbench module, self-service authentication flow, explicit
