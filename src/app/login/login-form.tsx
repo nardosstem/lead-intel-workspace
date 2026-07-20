@@ -43,7 +43,10 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
             : await supabase.auth.signUp({
                 email,
                 password,
-                options: fullName ? { data: { full_name: fullName } } : undefined,
+                options: {
+                  ...(fullName ? { data: { full_name: fullName } } : {}),
+                  emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+                },
               });
 
         if (result.error) {

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 type LoginPageProps = Readonly<{
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 }>;
 
 function safeNextPath(value: string | undefined): string {
@@ -20,6 +20,7 @@ function safeNextPath(value: string | undefined): string {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
+  const callbackError = params.error === "auth_callback_failed";
 
   return (
     <main className="mx-auto flex w-full max-w-md items-center justify-center py-10">
@@ -31,6 +32,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {callbackError ? (
+            <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+              The confirmation link could not be completed. Request a new link or sign in again.
+            </p>
+          ) : null}
           <LoginForm nextPath={safeNextPath(params.next)} />
         </CardContent>
       </Card>
