@@ -1,5 +1,6 @@
 import {
   check,
+  boolean,
   foreignKey,
   integer,
   index,
@@ -75,6 +76,8 @@ export const users = pgTable(
     fullName: varchar("full_name", { length: 160 }),
     avatarUrl: text("avatar_url"),
     role: organizationRoleEnum("role").notNull().default("member"),
+    isActive: boolean("is_active").notNull().default(true),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

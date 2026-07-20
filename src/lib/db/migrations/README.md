@@ -49,3 +49,8 @@ by promoting their oldest profile to owner; new self-service workspaces start
 with the signing-in user as owner. Role changes are tenant-scoped, audited, and
 cannot remove the last owner. Existing-profile promotions are recorded as
 system migration audit entries with a null actor.
+
+Migration `0011_*.sql` adds active/deactivated membership state. Deactivated
+members cannot load the workbench or execute mutations; owners must first
+demote an owner before deactivating that account. Reactivation and deactivation
+are audited tenant mutations.

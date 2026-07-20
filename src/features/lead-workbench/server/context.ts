@@ -19,14 +19,14 @@ export async function getLeadContext(): Promise<LeadContext | null> {
 
   const db = getDatabase();
   const profile = await db
-    .select({ organizationId: users.organizationId })
+    .select({ organizationId: users.organizationId, isActive: users.isActive })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
 
   const organizationId = profile[0]?.organizationId;
 
-  return organizationId ? { userId: user.id, organizationId } : null;
+  return organizationId && profile[0]?.isActive ? { userId: user.id, organizationId } : null;
 }
 
 /**
@@ -45,13 +45,15 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
 
   const db = getDatabase();
   const existingProfile = await db
-    .select({ organizationId: users.organizationId })
+    .select({ organizationId: users.organizationId, isActive: users.isActive })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
 
   if (existingProfile[0]) {
-    return { userId: user.id, organizationId: existingProfile[0].organizationId };
+    return existingProfile[0].isActive
+      ? { userId: user.id, organizationId: existingProfile[0].organizationId }
+      : null;
   }
 
   const email = user.email ?? `${user.id}@local.invalid`;
@@ -69,13 +71,15 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
     );
 
     const recheckedProfile = await tx
-      .select({ organizationId: users.organizationId })
+      .select({ organizationId: users.organizationId, isActive: users.isActive })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1);
 
     if (recheckedProfile[0]) {
-      return { userId: user.id, organizationId: recheckedProfile[0].organizationId };
+      return recheckedProfile[0].isActive
+        ? { userId: user.id, organizationId: recheckedProfile[0].organizationId }
+        : null;
     }
 
     const demoOrganization = await tx
@@ -154,7 +158,7 @@ export async function requireLeadContext(): Promise<LeadContext> {
   const user = await requireCurrentUser();
   const db = getDatabase();
   const profile = await db
-    .select({ organizationId: users.organizationId })
+    .select({ organizationId: users.organizationId, isActive: users.isActive })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
@@ -164,6 +168,11 @@ export async function requireLeadContext(): Promise<LeadContext> {
   if (!organizationId) {
     throw new Error("An organization profile is required for lead access.");
   }
+  if (!profile[0]?.isActive) {
+    const error = new Error("Workspace access is disabled for this account.");
+    error.name = "WorkspaceAccessDisabledError";
+    throw error;
+  }
 
   return { userId: user.id, organizationId };
 }
@@ -172,7 +181,7 @@ export async function requireLeadAdminContext(): Promise<LeadContext & { role: "
   const user = await requireCurrentUser();
   const db = getDatabase();
   const profile = await db
-    .select({ organizationId: users.organizationId, role: users.role })
+    .select({ organizationId: users.organizationId, role: users.role, isActive: users.isActive })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
@@ -180,6 +189,11 @@ export async function requireLeadAdminContext(): Promise<LeadContext & { role: "
 
   if (!membership?.organizationId) {
     throw new Error("An organization profile is required for lead access.");
+  }
+  if (!membership.isActive) {
+    const error = new Error("Workspace access is disabled for this account.");
+    error.name = "WorkspaceAccessDisabledError";
+    throw error;
   }
   if (membership.role !== "owner" && membership.role !== "admin") {
     const error = new Error("Organization administrator access is required.");
@@ -203,7 +217,7 @@ export async function requireLeadAdminTransaction(
   context: LeadContext,
 ): Promise<LeadContext & { role: "owner" | "admin" }> {
   const profile = await tx
-    .select({ organizationId: users.organizationId, role: users.role })
+    .select({ organizationId: users.organizationId, role: users.role, isActive: users.isActive })
     .from(users)
     .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
     .for("update")
@@ -212,6 +226,11 @@ export async function requireLeadAdminTransaction(
 
   if (!membership) {
     throw new Error("An organization profile is required for lead access.");
+  }
+  if (!membership.isActive) {
+    const error = new Error("Workspace access is disabled for this account.");
+    error.name = "WorkspaceAccessDisabledError";
+    throw error;
   }
   if (membership.role !== "owner" && membership.role !== "admin") {
     const error = new Error("Organization administrator access is required.");

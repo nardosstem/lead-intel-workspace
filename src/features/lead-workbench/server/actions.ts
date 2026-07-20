@@ -20,7 +20,7 @@ import {
   withLeadMutationContext,
 } from "./context";
 import { getWorkbenchSnapshot, toCompanyRecord, toContactRecord } from "./data";
-import { assertRoleChangeAllowed, RolePolicyError } from "./role-policy";
+import { assertMemberStatusChange, assertRoleChangeAllowed, RolePolicyError } from "./role-policy";
 import {
   companyInputSchema,
   contactInputSchema,
@@ -28,6 +28,7 @@ import {
   updateContactInputSchema,
   updatePipelineSchema,
   updateMemberRoleSchema,
+  updateMemberStatusSchema,
   normalizeCompanyDomain,
   workspaceSettingsSchema,
 } from "../validation";
@@ -72,6 +73,10 @@ function actionFailure(error: unknown): ActionResult<never> {
 
   if (error instanceof Error && error.name === "AuthorizationRequiredError") {
     return { ok: false, error: "Only organization owners and admins can perform this action." };
+  }
+
+  if (error instanceof Error && error.name === "WorkspaceAccessDisabledError") {
+    return { ok: false, error: "Workspace access is disabled for this account." };
   }
 
   if (error instanceof RolePolicyError && error.kind === "authorization") {
@@ -182,6 +187,8 @@ export async function updateMemberRole(
             email: users.email,
             fullName: users.fullName,
             role: users.role,
+            isActive: users.isActive,
+            deactivatedAt: users.deactivatedAt,
             createdAt: users.createdAt,
           })
           .from(users)
@@ -191,6 +198,7 @@ export async function updateMemberRole(
               eq(users.organizationId, context.organizationId),
             ),
           )
+          .for("update")
           .limit(1);
         const target = targetRows[0];
         if (!target) throw new Error("Organization member not found.");
@@ -225,6 +233,8 @@ export async function updateMemberRole(
             email: users.email,
             fullName: users.fullName,
             role: users.role,
+            isActive: users.isActive,
+            deactivatedAt: users.deactivatedAt,
             createdAt: users.createdAt,
           });
         const member = updated[0];
@@ -245,6 +255,119 @@ export async function updateMemberRole(
           email: member.email,
           fullName: member.fullName,
           role: member.role,
+          isActive: member.isActive,
+          deactivatedAt: member.deactivatedAt?.toISOString() ?? null,
+          createdAt: member.createdAt.toISOString(),
+        };
+      }),
+    };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+/** Deactivates or reactivates an existing organization member. */
+export async function updateMemberStatus(
+  input: unknown,
+): Promise<ActionResult<OrganizationMemberRecord>> {
+  const parsed = updateMemberStatusSchema.safeParse(input);
+  if (!parsed.success) return validationFailure(parsed.error);
+
+  try {
+    const context = await requireLeadAdminContext();
+    return {
+      ok: true,
+      data: await withLeadMutationContext(context, async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`role:${context.organizationId}`}, 0))`,
+        );
+        const actor = await requireLeadAdminTransaction(tx, context);
+        const targetRows = await tx
+          .select({
+            id: users.id,
+            email: users.email,
+            fullName: users.fullName,
+            role: users.role,
+            isActive: users.isActive,
+            deactivatedAt: users.deactivatedAt,
+            createdAt: users.createdAt,
+          })
+          .from(users)
+          .where(
+            and(
+              eq(users.id, parsed.data.targetUserId),
+              eq(users.organizationId, context.organizationId),
+            ),
+          )
+          .for("update")
+          .limit(1);
+        const target = targetRows[0];
+        if (!target) throw new Error("Organization member not found.");
+
+        assertMemberStatusChange({
+          actorUserId: context.userId,
+          actorRole: actor.role,
+          targetUserId: target.id,
+          targetRole: target.role,
+          requestedActive: parsed.data.isActive,
+        });
+
+        if (target.isActive === parsed.data.isActive) {
+          return {
+            id: target.id,
+            email: target.email,
+            fullName: target.fullName,
+            role: target.role,
+            isActive: target.isActive,
+            deactivatedAt: target.deactivatedAt?.toISOString() ?? null,
+            createdAt: target.createdAt.toISOString(),
+          };
+        }
+
+        const updated = await tx
+          .update(users)
+          .set({
+            isActive: parsed.data.isActive,
+            deactivatedAt: parsed.data.isActive ? null : new Date(),
+          })
+          .where(
+            and(
+              eq(users.id, target.id),
+              eq(users.organizationId, context.organizationId),
+            ),
+          )
+          .returning({
+            id: users.id,
+            email: users.email,
+            fullName: users.fullName,
+            role: users.role,
+            isActive: users.isActive,
+            deactivatedAt: users.deactivatedAt,
+            createdAt: users.createdAt,
+          });
+        const member = updated[0];
+        if (!member) throw new Error("Member access update returned no row.");
+
+        await tx.insert(auditLogs).values({
+          organizationId: context.organizationId,
+          actorUserId: context.userId,
+          action: member.isActive ? "member_reactivated" : "member_deactivated",
+          entityType: "user",
+          entityId: member.id,
+          changes: {
+            before: { isActive: target.isActive },
+            after: { isActive: member.isActive },
+          },
+          metadata: { source: "lead-workbench-settings" },
+        });
+
+        return {
+          id: member.id,
+          email: member.email,
+          fullName: member.fullName,
+          role: member.role,
+          isActive: member.isActive,
+          deactivatedAt: member.deactivatedAt?.toISOString() ?? null,
           createdAt: member.createdAt.toISOString(),
         };
       }),

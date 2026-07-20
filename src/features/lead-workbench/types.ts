@@ -70,6 +70,8 @@ export type OrganizationMemberRecord = {
   email: string;
   fullName: string | null;
   role: "owner" | "admin" | "member";
+  isActive: boolean;
+  deactivatedAt: string | null;
   createdAt: string;
 };
 

@@ -138,13 +138,13 @@ async function verifyBoundaries() {
     const memberships = await client`
       select organization_id,
         count(*)::int as members,
-        count(*) filter (where role = 'owner')::int as owners
+        count(*) filter (where role = 'owner' and is_active)::int as active_owners
       from public.users
       group by organization_id
     `;
     for (const membership of memberships) {
       assert(
-        Number(membership.members) === 0 || Number(membership.owners) > 0,
+        Number(membership.members) === 0 || Number(membership.active_owners) > 0,
         `Organization ${membership.organization_id} has no owner.`,
       );
     }

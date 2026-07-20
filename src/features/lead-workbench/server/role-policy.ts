@@ -30,3 +30,19 @@ export function assertRoleChangeAllowed(input: Readonly<{
     throw new RolePolicyError("An organization must keep at least one owner.", "invariant");
   }
 }
+
+export function assertMemberStatusChange(input: Readonly<{
+  actorUserId: string;
+  actorRole: "owner" | "admin";
+  targetUserId: string;
+  targetRole: OrganizationRole;
+  requestedActive: boolean;
+}>): void {
+  if (input.requestedActive) return;
+  if (input.actorUserId === input.targetUserId) {
+    throw new RolePolicyError("You cannot deactivate your own workspace access.", "authorization");
+  }
+  if (input.targetRole === "owner") {
+    throw new RolePolicyError("Demote an owner before deactivating their access.", "authorization");
+  }
+}

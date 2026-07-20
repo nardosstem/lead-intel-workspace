@@ -135,6 +135,8 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
         email: users.email,
         fullName: users.fullName,
         role: users.role,
+        isActive: users.isActive,
+        deactivatedAt: users.deactivatedAt,
         createdAt: users.createdAt,
       })
       .from(users)
@@ -210,6 +212,8 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       email: member.email,
       fullName: member.fullName,
       role: member.role,
+      isActive: member.isActive,
+      deactivatedAt: member.deactivatedAt?.toISOString() ?? null,
       createdAt: member.createdAt.toISOString(),
     })),
     companies: companyRows.map(toCompanyRecord),

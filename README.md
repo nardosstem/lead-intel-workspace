@@ -297,9 +297,10 @@ migration promotions are recorded as system entries. Invitations and email
 delivery are intentionally external deployment concerns until a reviewed
 provider is selected. The current profile model intentionally supports one
 organization per Auth user; there is no organization switcher, invitation
-acceptance, or member deactivation flow in this release. Use Supabase Admin or
-a reviewed invitation service for controlled team provisioning until those
-flows are added.
+acceptance, or invitation email delivery in this release. Owners/admins can
+deactivate and reactivate existing profiles; use Supabase Admin or a reviewed
+invitation service for controlled team provisioning until invitations are
+added.
 
 Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
 returns immediately. The durable `ingest-lead` function then fetches up to five

@@ -37,6 +37,7 @@ import {
   deleteContact,
   getLeads,
   updateMemberRole,
+  updateMemberStatus,
   updateWorkspaceSettings,
   updatePipeline,
 } from "../server/actions";
@@ -492,6 +493,28 @@ function SettingsView({
     });
   }
 
+  function changeMemberStatus(member: OrganizationMemberRecord) {
+    const nextActive = !member.isActive;
+    if (!nextActive && !window.confirm(`Deactivate ${member.email}'s workspace access?`)) return;
+    setMemberError(null);
+    setPendingMemberId(member.id);
+    startTransition(async () => {
+      try {
+        const result = await updateMemberStatus({ targetUserId: member.id, isActive: nextActive });
+        if (!result.ok) {
+          setMemberError(result.error);
+          return;
+        }
+        onMemberUpdated(result.data);
+        toast.success(nextActive ? "Member access restored" : "Member access deactivated");
+      } catch {
+        setMemberError("Member access could not be updated. Try again.");
+      } finally {
+        setPendingMemberId(null);
+      }
+    });
+  }
+
   function save() {
     setError(null);
     startTransition(async () => {
@@ -531,21 +554,35 @@ function SettingsView({
                   {member.id === settings.currentUserId ? <span className="ml-2 text-xs font-normal text-muted-foreground">You</span> : null}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                <p className={member.isActive ? "text-xs text-emerald-600 dark:text-emerald-400" : "text-xs text-destructive"}>
+                  {member.isActive ? "Active" : "Deactivated"}
+                </p>
               </div>
-              <Select
-                value={member.role}
-                onValueChange={(value) => changeMemberRole(member.id, value as OrganizationMemberRecord["role"])}
-                disabled={settings.currentUserRole === "member" || pendingMemberId === member.id || (member.role === "owner" && settings.currentUserRole !== "owner")}
-              >
-                <SelectTrigger className="w-full sm:w-32" aria-label={`Role for ${member.email}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">Member</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="owner" disabled={settings.currentUserRole !== "owner"}>Owner</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Select
+                  value={member.role}
+                  onValueChange={(value) => changeMemberRole(member.id, value as OrganizationMemberRecord["role"])}
+                  disabled={settings.currentUserRole === "member" || !member.isActive || pendingMemberId === member.id || (member.role === "owner" && settings.currentUserRole !== "owner")}
+                >
+                  <SelectTrigger className="w-full sm:w-32" aria-label={`Role for ${member.email}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">Member</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="owner" disabled={settings.currentUserRole !== "owner"}>Owner</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => changeMemberStatus(member)}
+                  disabled={settings.currentUserRole === "member" || member.role === "owner" || pendingMemberId === member.id}
+                >
+                  {member.isActive ? "Deactivate" : "Reactivate"}
+                </Button>
+              </div>
             </div>
           )) : <p className="text-sm text-muted-foreground">No organization members found.</p>}
         </CardContent>

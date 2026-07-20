@@ -6,9 +6,10 @@ import {
   researchCompanySchema,
   scoreIcpSchema,
   updateMemberRoleSchema,
+  updateMemberStatusSchema,
   workspaceSettingsSchema,
 } from "./validation";
-import { assertRoleChangeAllowed, RolePolicyError } from "./server/role-policy";
+import { assertMemberStatusChange, assertRoleChangeAllowed, RolePolicyError } from "./server/role-policy";
 
 describe("lead input URL validation", () => {
   it("rejects executable schemes and private research hosts", () => {
@@ -75,6 +76,10 @@ describe("organization governance validation", () => {
       targetUserId: "not-a-uuid",
       role: "owner",
     }).success).toBe(false);
+    expect(updateMemberStatusSchema.safeParse({
+      targetUserId: "00000000-0000-4000-8000-000000000001",
+      isActive: false,
+    }).success).toBe(true);
     expect(updateMemberRoleSchema.safeParse({
       targetUserId: "00000000-0000-4000-8000-000000000001",
       role: "superadmin",
@@ -109,5 +114,22 @@ describe("organization governance validation", () => {
       requestedRole: "admin",
       ownerCount: 2,
     })).not.toThrow();
+  });
+
+  it("prevents self-lockout and owner deactivation", () => {
+    expect(() => assertMemberStatusChange({
+      actorUserId: "user-1",
+      actorRole: "owner",
+      targetUserId: "user-1",
+      targetRole: "owner",
+      requestedActive: false,
+    })).toThrowError(/cannot deactivate your own/);
+    expect(() => assertMemberStatusChange({
+      actorUserId: "user-1",
+      actorRole: "owner",
+      targetUserId: "user-2",
+      targetRole: "owner",
+      requestedActive: false,
+    })).toThrowError(/Demote an owner/);
   });
 });

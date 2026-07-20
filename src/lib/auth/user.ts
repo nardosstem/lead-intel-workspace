@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { User } from "@supabase/supabase-js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { createClient } from "@/lib/auth/server";
 import { getDatabase, organizations, users } from "@/lib/db";
@@ -47,7 +47,7 @@ export async function getCurrentOrganizationName(userId: string): Promise<string
       .select({ name: organizations.name })
       .from(users)
       .innerJoin(organizations, eq(users.organizationId, organizations.id))
-      .where(eq(users.id, userId))
+      .where(and(eq(users.id, userId), eq(users.isActive, true)))
       .limit(1);
     return rows[0]?.name ?? null;
   } catch {

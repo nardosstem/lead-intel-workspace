@@ -116,6 +116,11 @@ export const updateMemberRoleSchema = z.object({
   role: z.enum(organizationRoles),
 });
 
+export const updateMemberStatusSchema = z.object({
+  targetUserId: z.uuid(),
+  isActive: z.boolean(),
+});
+
 export const researchCompanySchema = z.object({
   companyId: z.uuid(),
   websiteUrl: httpsPublicUrl,
