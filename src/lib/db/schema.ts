@@ -29,6 +29,12 @@ export const organizations = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     name: varchar("name", { length: 160 }).notNull(),
     slug: varchar("slug", { length: 80 }).notNull(),
+    defaultPipelineStage: pipelineStageEnum("default_pipeline_stage")
+      .notNull()
+      .default("new"),
+    defaultFollowUpDays: integer("default_follow_up_days")
+      .notNull()
+      .default(7),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -37,7 +43,13 @@ export const organizations = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [uniqueIndex("organizations_slug_uidx").on(table.slug)],
+  (table) => [
+    check(
+      "organizations_default_follow_up_days_check",
+      sql`${table.defaultFollowUpDays} >= 1 AND ${table.defaultFollowUpDays} <= 90`,
+    ),
+    uniqueIndex("organizations_slug_uidx").on(table.slug),
+  ],
 ).enableRLS();
 
 /**

@@ -64,10 +64,17 @@ export type AuditRecord = {
 };
 
 export type WorkbenchSnapshot = {
+  settings: WorkspaceSettings;
   companies: CompanyRecord[];
   contacts: ContactRecord[];
   pipeline: PipelineRecord[];
   auditLogs: AuditRecord[];
+};
+
+export type WorkspaceSettings = {
+  organizationName: string;
+  defaultStage: PipelineStage;
+  followUpDays: number;
 };
 
 export type ActionResult<T> =
@@ -79,6 +86,11 @@ export type ActionResult<T> =
     };
 
 export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
+  settings: {
+    organizationName: "Lead Intel Workspace",
+    defaultStage: "new",
+    followUpDays: 7,
+  },
   companies: [],
   contacts: [],
   pipeline: [],

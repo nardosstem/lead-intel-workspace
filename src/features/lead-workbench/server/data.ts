@@ -7,6 +7,7 @@ import {
   companies,
   contacts,
   getDatabase,
+  organizations,
   pipeline,
 } from "@/lib/db";
 
@@ -110,7 +111,16 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   }
 
   const db = getDatabase();
-  const [companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
+  const [organizationRows, companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
+    db
+      .select({
+        name: organizations.name,
+        defaultStage: organizations.defaultPipelineStage,
+        followUpDays: organizations.defaultFollowUpDays,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, context.organizationId))
+      .limit(1),
     db
       .select()
       .from(companies)
@@ -163,6 +173,11 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   ]);
 
   return {
+    settings: {
+      organizationName: organizationRows[0]?.name ?? "Lead Intel Workspace",
+      defaultStage: organizationRows[0]?.defaultStage ?? "new",
+      followUpDays: organizationRows[0]?.followUpDays ?? 7,
+    },
     companies: companyRows.map(toCompanyRecord),
     contacts: contactRows.map((row) =>
       toContactRecord(row.contact, row.companyName),

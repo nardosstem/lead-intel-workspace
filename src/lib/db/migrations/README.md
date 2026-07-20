@@ -37,3 +37,7 @@ Migration `0008_*.sql` stores AI research, ICP rationale/signals, call prep,
 and contact-specific outreach drafts. These are written through tenant-scoped
 server actions, so the normal database audit triggers retain the before/after
 record of each generated work product.
+
+Migration `0009_*.sql` adds persisted organization defaults for the initial
+pipeline stage and follow-up window. Settings updates are explicitly audited,
+and new manual/CSV lead records consume the saved defaults.

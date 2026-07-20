@@ -103,6 +103,11 @@ export const updatePipelineSchema = z.object({
   ),
 });
 
+export const workspaceSettingsSchema = z.object({
+  defaultStage: z.enum(pipelineStages),
+  followUpDays: z.coerce.number().int().min(1).max(90),
+});
+
 export const researchCompanySchema = z.object({
   companyId: z.uuid(),
   websiteUrl: httpsPublicUrl,

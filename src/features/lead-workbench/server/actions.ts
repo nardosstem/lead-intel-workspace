@@ -4,8 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  auditLogs,
   companies,
   contacts,
+  organizations,
   pipeline,
 } from "@/lib/db";
 
@@ -19,12 +21,14 @@ import {
   updateContactInputSchema,
   updatePipelineSchema,
   normalizeCompanyDomain,
+  workspaceSettingsSchema,
 } from "../validation";
 import type {
   ActionResult,
   CompanyRecord,
   ContactRecord,
   WorkbenchSnapshot,
+  WorkspaceSettings,
 } from "../types";
 
 function validationFailure(error: z.ZodError): ActionResult<never> {
@@ -78,6 +82,56 @@ export async function getLeads(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot();
 }
 
+export async function updateWorkspaceSettings(
+  input: unknown,
+): Promise<ActionResult<WorkspaceSettings>> {
+  const parsed = workspaceSettingsSchema.safeParse(input);
+  if (!parsed.success) return validationFailure(parsed.error);
+
+  try {
+    return {
+      ok: true,
+      data: await withLeadMutation(async (tx, context) => {
+        const updated = await tx
+          .update(organizations)
+          .set({
+            defaultPipelineStage: parsed.data.defaultStage,
+            defaultFollowUpDays: parsed.data.followUpDays,
+          })
+          .where(eq(organizations.id, context.organizationId))
+          .returning({
+            name: organizations.name,
+            defaultStage: organizations.defaultPipelineStage,
+            followUpDays: organizations.defaultFollowUpDays,
+          });
+        const organization = updated[0];
+        if (!organization) throw new Error("Organization not found.");
+
+        await tx.insert(auditLogs).values({
+          organizationId: context.organizationId,
+          actorUserId: context.userId,
+          action: "settings_updated",
+          entityType: "organization",
+          entityId: context.organizationId,
+          changes: {
+            defaultStage: organization.defaultStage,
+            followUpDays: organization.followUpDays,
+          },
+          metadata: { source: "lead-workbench-settings" },
+        });
+
+        return {
+          organizationName: organization.name,
+          defaultStage: organization.defaultStage,
+          followUpDays: organization.followUpDays,
+        };
+      }),
+    };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
 export async function createCompany(
   input: unknown,
 ): Promise<ActionResult<CompanyRecord>> {
@@ -90,6 +144,15 @@ export async function createCompany(
     return {
       ok: true,
       data: await withLeadMutation(async (tx, context) => {
+        const settings = await tx
+          .select({
+            defaultStage: organizations.defaultPipelineStage,
+            followUpDays: organizations.defaultFollowUpDays,
+          })
+          .from(organizations)
+          .where(eq(organizations.id, context.organizationId))
+          .limit(1);
+        const defaults = settings[0];
         const inserted = await tx
           .insert(companies)
           .values({
@@ -106,7 +169,10 @@ export async function createCompany(
         await tx.insert(pipeline).values({
           organizationId: context.organizationId,
           companyId: company.id,
-          stage: "new",
+          stage: defaults?.defaultStage ?? "new",
+          nextFollowUpAt: new Date(
+            Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
+          ),
         });
 
         return toCompanyRecord(company);
@@ -187,6 +253,15 @@ export async function createContact(
     return {
       ok: true,
       data: await withLeadMutation(async (tx, context) => {
+        const settings = await tx
+          .select({
+            defaultStage: organizations.defaultPipelineStage,
+            followUpDays: organizations.defaultFollowUpDays,
+          })
+          .from(organizations)
+          .where(eq(organizations.id, context.organizationId))
+          .limit(1);
+        const defaults = settings[0];
         const company = await tx
           .select({ id: companies.id, name: companies.name })
           .from(companies)
@@ -208,7 +283,10 @@ export async function createContact(
         await tx.insert(pipeline).values({
           organizationId: context.organizationId,
           contactId: contact.id,
-          stage: "new",
+          stage: defaults?.defaultStage ?? "new",
+          nextFollowUpAt: new Date(
+            Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
+          ),
         });
 
         return toContactRecord(contact, company[0].name);
@@ -379,6 +457,15 @@ export async function importCompaniesCsv(
     const importResult = await withLeadMutation(async (tx, context) => {
       let count = 0;
       const errors = [...parsed.errors];
+      const settings = await tx
+        .select({
+          defaultStage: organizations.defaultPipelineStage,
+          followUpDays: organizations.defaultFollowUpDays,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, context.organizationId))
+        .limit(1);
+      const defaults = settings[0];
       for (const [index, row] of parsed.rows.entries()) {
         const rowNumber = parsed.rowNumbers[index] ?? index + 2;
         try {
@@ -396,7 +483,10 @@ export async function importCompaniesCsv(
             await savepoint.insert(pipeline).values({
               organizationId: context.organizationId,
               companyId: company.id,
-              stage: "new",
+              stage: defaults?.defaultStage ?? "new",
+              nextFollowUpAt: new Date(
+                Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
+              ),
             });
           });
           count += 1;

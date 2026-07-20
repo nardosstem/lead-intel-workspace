@@ -1,0 +1,3 @@
+ALTER TABLE "organizations" ADD COLUMN "default_pipeline_stage" "pipeline_stage" DEFAULT 'new' NOT NULL;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "default_follow_up_days" integer DEFAULT 7 NOT NULL;--> statement-breakpoint
+ALTER TABLE "organizations" ADD CONSTRAINT "organizations_default_follow_up_days_check" CHECK ("organizations"."default_follow_up_days" >= 1 AND "organizations"."default_follow_up_days" <= 90);

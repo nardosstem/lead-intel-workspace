@@ -36,6 +36,7 @@ import {
   deleteCompany,
   deleteContact,
   getLeads,
+  updateWorkspaceSettings,
   updatePipeline,
 } from "../server/actions";
 import type {
@@ -44,6 +45,7 @@ import type {
   AuditRecord,
   PipelineRecord,
   WorkbenchSnapshot,
+  WorkspaceSettings,
 } from "../types";
 import { CompanyForm } from "./company-form";
 import { ContactForm } from "./contact-form";
@@ -425,9 +427,37 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
   );
 }
 
-function SettingsView() {
-  const [defaultStage, setDefaultStage] = useState<PipelineStage>("new");
-  const [followUpDays, setFollowUpDays] = useState("7");
+function SettingsView({
+  settings,
+  onSaved,
+}: Readonly<{
+  settings: WorkspaceSettings;
+  onSaved: (settings: WorkspaceSettings) => void;
+}>) {
+  const [defaultStage, setDefaultStage] = useState<PipelineStage>(settings.defaultStage);
+  const [followUpDays, setFollowUpDays] = useState(String(settings.followUpDays));
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await updateWorkspaceSettings({
+          defaultStage,
+          followUpDays,
+        });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        onSaved(result.data);
+        toast.success("Workspace preferences saved");
+      } catch {
+        setError("Preferences could not be saved. Try again.");
+      }
+    });
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
@@ -435,10 +465,11 @@ function SettingsView() {
         <CardHeader>
           <CardTitle className="text-base">Workspace preferences</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Defaults for this browser session. Organization-level settings can be persisted when that schema is introduced.
+            Persisted organization defaults used for newly created companies and contacts.
           </p>
         </CardHeader>
         <CardContent className="space-y-5">
+          {error ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
           <label className="space-y-1.5 text-sm">
             <span className="font-medium">Default pipeline stage</span>
             <Select value={defaultStage} onValueChange={(value) => value && setDefaultStage(value as PipelineStage)}>
@@ -461,8 +492,8 @@ function SettingsView() {
               <span className="text-sm text-muted-foreground">days after first touch</span>
             </div>
           </label>
-          <Button type="button" onClick={() => toast.success("Workspace preferences saved for this session")}>
-            Save preferences
+          <Button type="button" onClick={save} disabled={isPending}>
+            {isPending ? "Saving…" : "Save preferences"}
           </Button>
         </CardContent>
       </Card>
@@ -858,7 +889,13 @@ export function LeadWorkbench({
         </Card>
       )}
       {view === "audit" && <AuditView logs={data.auditLogs} />}
-      {view === "settings" && <SettingsView />}
+      {view === "settings" && (
+        <SettingsView
+          key={`${data.settings.defaultStage}-${data.settings.followUpDays}`}
+          settings={data.settings}
+          onSaved={(settings) => setData((current) => ({ ...current, settings }))}
+        />
+      )}
 
       <Dialog open={companyDialog !== null} onOpenChange={(open) => !open && setCompanyDialog(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">

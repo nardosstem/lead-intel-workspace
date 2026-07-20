@@ -4,6 +4,7 @@ import {
   contactInputSchema,
   researchCompanySchema,
   scoreIcpSchema,
+  workspaceSettingsSchema,
 } from "./validation";
 
 describe("lead input URL validation", () => {
@@ -47,6 +48,15 @@ describe("lead input URL validation", () => {
         companyId: "10000000-0000-4000-8000-000000000001",
         companyData: { name: "Acme", website: "https://user:pass@acme.com" },
       }).success,
+    ).toBe(false);
+  });
+
+  it("bounds persisted workspace defaults", () => {
+    expect(
+      workspaceSettingsSchema.safeParse({ defaultStage: "qualified", followUpDays: 14 }).success,
+    ).toBe(true);
+    expect(
+      workspaceSettingsSchema.safeParse({ defaultStage: "new", followUpDays: 0 }).success,
     ).toBe(false);
   });
 });

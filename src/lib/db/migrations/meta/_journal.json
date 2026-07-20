@@ -64,6 +64,13 @@
       "when": 1784530407758,
       "tag": "0008_legal_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784530839501,
+      "tag": "0009_absent_gorilla_man",
+      "breakpoints": true
     }
   ]
 }
