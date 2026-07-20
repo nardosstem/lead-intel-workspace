@@ -4,6 +4,7 @@ export type {
   CompanyRecord,
   ContactRecord,
   OrganizationMemberRecord,
+  OrganizationInvitationRecord,
   PipelineRecord,
   WorkbenchSnapshot,
 } from "./types";

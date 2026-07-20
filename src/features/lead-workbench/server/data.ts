@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import {
   auditLogs,
@@ -8,6 +8,7 @@ import {
   contacts,
   getDatabase,
   organizations,
+  organizationInvitations,
   users,
   pipeline,
 } from "@/lib/db";
@@ -19,6 +20,7 @@ import {
   type ContactRecord,
   type AuditRecord,
   type OrganizationMemberRecord,
+  type OrganizationInvitationRecord,
   type PipelineRecord,
   type WorkbenchSnapshot,
 } from "../types";
@@ -119,7 +121,7 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   }
 
   const db = getDatabase();
-  const [organizationRows, memberRows, companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
+  const [organizationRows, memberRows, invitationRows, companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
     db
       .select({
         name: organizations.name,
@@ -142,6 +144,17 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       .from(users)
       .where(eq(users.organizationId, context.organizationId))
       .orderBy(asc(users.createdAt)),
+    db
+      .select()
+      .from(organizationInvitations)
+      .where(
+        and(
+          eq(organizationInvitations.organizationId, context.organizationId),
+          eq(organizationInvitations.status, "pending"),
+          gt(organizationInvitations.expiresAt, new Date()),
+        ),
+      )
+      .orderBy(desc(organizationInvitations.createdAt)),
     db
       .select()
       .from(companies)
@@ -216,6 +229,17 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       deactivatedAt: member.deactivatedAt?.toISOString() ?? null,
       createdAt: member.createdAt.toISOString(),
     })),
+    pendingInvitations: invitationRows.flatMap((invitation): OrganizationInvitationRecord[] =>
+      invitation.role === "owner"
+        ? []
+        : [{
+            id: invitation.id,
+            email: invitation.email,
+            role: invitation.role,
+            expiresAt: invitation.expiresAt.toISOString(),
+            createdAt: invitation.createdAt.toISOString(),
+          }],
+    ),
     companies: companyRows.map(toCompanyRecord),
     contacts: contactRows.map((row) =>
       toContactRecord(row.contact, row.companyName),

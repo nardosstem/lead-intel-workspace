@@ -121,6 +121,11 @@ export const updateMemberStatusSchema = z.object({
   isActive: z.boolean(),
 });
 
+export const inviteMemberSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email()),
+  role: z.enum(["admin", "member"] as const),
+});
+
 export const researchCompanySchema = z.object({
   companyId: z.uuid(),
   websiteUrl: httpsPublicUrl,

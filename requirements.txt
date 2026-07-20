@@ -33,6 +33,10 @@ AUTH AND STORAGE
 - Authorize organization membership again inside Server Functions, Route Handlers, and services.
 - Use private Storage buckets by default and organization-scoped object paths; validate file type and size.
 - Never expose DATABASE_URL, service-role keys, provider keys, or tokens with NEXT_PUBLIC_ names.
+- Member invitations require `SUPABASE_SERVICE_ROLE_KEY` (server-only) and
+  `NEXT_PUBLIC_APP_URL`; the Auth callback creates the tenant profile after a
+  verified invitation session. Keep one organization per Auth user until an
+  organization-switching model is designed.
 
 AI
 - Feature and domain code may depend on IAIProvider only, never ClaudeMCPProvider or an SDK directly.

@@ -22,6 +22,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const callbackError = params.error === "auth_callback_failed";
   const workspaceAccessDisabled = params.error === "workspace_access_disabled";
+  const invitationConflict = params.error === "invitation_conflict";
 
   return (
     <main className="mx-auto flex w-full max-w-md items-center justify-center py-10">
@@ -41,6 +42,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {workspaceAccessDisabled ? (
             <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
               Workspace access is disabled for this account. Contact your organization owner.
+            </p>
+          ) : null}
+          {invitationConflict ? (
+            <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+              This account already belongs to another organization. Contact an owner before accepting the invitation.
             </p>
           ) : null}
           <LoginForm nextPath={safeNextPath(params.next)} />

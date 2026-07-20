@@ -43,6 +43,9 @@ APOLLO_API_KEY=your-apollo-master-api-key
 FIRECRAWL_API_KEY=fc-your-firecrawl-api-key
 INNGEST_EVENT_KEY=your-inngest-event-key
 INNGEST_SIGNING_KEY=signkey-prod-...
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Server-only; required for organization invitations. Never expose this key to the browser.
+SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 ```
 
 Use a direct connection for migrations. At runtime, Supabase's session pooler
@@ -294,13 +297,14 @@ members can work leads; only owners and admins can change workspace defaults or
 member roles. Only owners can grant owner access, and the last owner cannot be
 demoted. Application role changes are recorded in the tenant audit history;
 migration promotions are recorded as system entries. Invitations and email
-delivery are intentionally external deployment concerns until a reviewed
-provider is selected. The current profile model intentionally supports one
-organization per Auth user; there is no organization switcher, invitation
-acceptance, or invitation email delivery in this release. Owners/admins can
-deactivate and reactivate existing profiles; use Supabase Admin or a reviewed
-invitation service for controlled team provisioning until invitations are
-added.
+delivery use the Supabase Admin Auth API. Owners/admins can invite members from
+Settings; invitations expire after seven days, are audited, and are accepted
+through the PKCE callback. Configure both `SUPABASE_SERVICE_ROLE_KEY` and
+`NEXT_PUBLIC_APP_URL` before using this flow. The current profile model
+intentionally supports one organization per Auth user and has no organization
+switcher; an account that already belongs to another organization cannot accept
+a second invitation. Owners/admins can also deactivate and reactivate existing
+profiles.
 
 Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
 returns immediately. The durable `ingest-lead` function then fetches up to five
@@ -383,7 +387,7 @@ tests.
 ## Current scope
 
 The initial lead-workbench module, self-service authentication flow, explicit
-organization governance, and durable Apollo/Firecrawl/AI ingestion workflow are
-included under `src/features/lead-workbench` and `src/inngest`. Billing,
-invitation email delivery, and a production MCP deployment remain separately
-reviewed concerns.
+organization governance, Supabase invitation onboarding, and durable
+Apollo/Firecrawl/AI ingestion workflow are included under
+`src/features/lead-workbench` and `src/inngest`. Billing, organization
+switching, and a production MCP deployment remain separately reviewed concerns.

@@ -36,6 +36,8 @@ import {
   deleteCompany,
   deleteContact,
   getLeads,
+  inviteMember,
+  revokeInvitation,
   updateMemberRole,
   updateMemberStatus,
   updateWorkspaceSettings,
@@ -46,6 +48,7 @@ import type {
   ContactRecord,
   AuditRecord,
   OrganizationMemberRecord,
+  OrganizationInvitationRecord,
   PipelineRecord,
   WorkbenchSnapshot,
   WorkspaceSettings,
@@ -453,13 +456,19 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
 function SettingsView({
   settings,
   members,
+  pendingInvitations,
   onSaved,
   onMemberUpdated,
+  onInvitationCreated,
+  onInvitationRevoked,
 }: Readonly<{
   settings: WorkspaceSettings;
   members: OrganizationMemberRecord[];
+  pendingInvitations: OrganizationInvitationRecord[];
   onSaved: (settings: WorkspaceSettings) => void;
   onMemberUpdated: (member: OrganizationMemberRecord) => void;
+  onInvitationCreated: (invitation: OrganizationInvitationRecord) => void;
+  onInvitationRevoked: (invitationId: string) => void;
 }>) {
   const [defaultStage, setDefaultStage] = useState<PipelineStage>(settings.defaultStage);
   const [followUpDays, setFollowUpDays] = useState(String(settings.followUpDays));
@@ -467,6 +476,10 @@ function SettingsView({
   const [pendingMemberId, setPendingMemberId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [memberError, setMemberError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isInviting, startInviteTransition] = useTransition();
 
   function changeMemberRole(memberId: string, role: OrganizationMemberRecord["role"]) {
     const member = members.find((candidate) => candidate.id === memberId);
@@ -535,6 +548,43 @@ function SettingsView({
     });
   }
 
+  function submitInvitation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInviteError(null);
+    startInviteTransition(async () => {
+      try {
+        const result = await inviteMember({ email: inviteEmail, role: inviteRole });
+        if (!result.ok) {
+          setInviteError(result.error);
+          return;
+        }
+        onInvitationCreated(result.data);
+        setInviteEmail("");
+        toast.success("Invitation sent");
+      } catch {
+        setInviteError("The invitation could not be sent. Try again.");
+      }
+    });
+  }
+
+  function revokePendingInvitation(invitation: OrganizationInvitationRecord) {
+    if (!window.confirm(`Revoke the invitation for ${invitation.email}?`)) return;
+    setInviteError(null);
+    startInviteTransition(async () => {
+      try {
+        const result = await revokeInvitation(invitation.id);
+        if (!result.ok) {
+          setInviteError(result.error);
+          return;
+        }
+        onInvitationRevoked(invitation.id);
+        toast.success("Invitation revoked");
+      } catch {
+        setInviteError("The invitation could not be revoked. Try again.");
+      }
+    });
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
       <Card>
@@ -585,6 +635,63 @@ function SettingsView({
               </div>
             </div>
           )) : <p className="text-sm text-muted-foreground">No organization members found.</p>}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Invite teammates</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Invite a teammate by email. They will join this organization after accepting the Supabase email.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {inviteError ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{inviteError}</p> : null}
+          <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={submitInvitation}>
+            <label className="min-w-0 flex-1 space-y-1.5 text-sm">
+              <span className="font-medium">Email address</span>
+              <Input
+                type="email"
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                placeholder="teammate@company.com"
+                autoComplete="email"
+                required
+                disabled={settings.currentUserRole === "member" || isInviting}
+              />
+            </label>
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium">Role</span>
+              <Select value={inviteRole} onValueChange={(value) => value && setInviteRole(value as "admin" | "member")} disabled={settings.currentUserRole === "member" || isInviting}>
+                <SelectTrigger className="w-full sm:w-32" aria-label="Invitation role"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <Button type="submit" disabled={settings.currentUserRole === "member" || isInviting}>
+              {isInviting ? "Sending…" : "Send invite"}
+            </Button>
+          </form>
+          {pendingInvitations.length ? (
+            <div className="space-y-2" aria-label="Pending invitations">
+              <p className="text-sm font-medium">Pending invitations</p>
+              {pendingInvitations.map((invitation) => (
+                <div key={invitation.id} className="flex flex-col gap-2 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <span className="block truncate">{invitation.email}</span>
+                    <span className="text-xs text-muted-foreground">{invitation.role} · expires {shortDate(invitation.expiresAt)}</span>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => revokePendingInvitation(invitation)} disabled={settings.currentUserRole === "member" || isInviting}>
+                    Revoke
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No pending invitations.</p>
+          )}
+          {settings.currentUserRole === "member" ? <p className="text-xs text-muted-foreground">Only owners and admins can invite teammates.</p> : null}
         </CardContent>
       </Card>
       <Card>
@@ -1018,9 +1125,10 @@ export function LeadWorkbench({
       {view === "audit" && <AuditView logs={data.auditLogs} />}
       {view === "settings" && (
         <SettingsView
-          key={`${data.settings.defaultStage}-${data.settings.followUpDays}-${data.members.map((member) => `${member.id}:${member.role}`).join(",")}`}
+          key={`${data.settings.defaultStage}-${data.settings.followUpDays}-${data.members.map((member) => `${member.id}:${member.role}:${member.isActive}`).join(",")}-${data.pendingInvitations.map((invitation) => invitation.id).join(",")}`}
           settings={data.settings}
           members={data.members}
+          pendingInvitations={data.pendingInvitations}
           onSaved={(settings) => setData((current) => ({ ...current, settings }))}
           onMemberUpdated={(updatedMember) => setData((current) => ({
             ...current,
@@ -1028,6 +1136,14 @@ export function LeadWorkbench({
               ? { ...current.settings, currentUserRole: updatedMember.role }
               : current.settings,
             members: current.members.map((member) => member.id === updatedMember.id ? updatedMember : member),
+          }))}
+          onInvitationCreated={(invitation) => setData((current) => ({
+            ...current,
+            pendingInvitations: [invitation, ...current.pendingInvitations.filter((item) => item.id !== invitation.id)],
+          }))}
+          onInvitationRevoked={(invitationId) => setData((current) => ({
+            ...current,
+            pendingInvitations: current.pendingInvitations.filter((invitation) => invitation.id !== invitationId),
           }))}
         />
       )}

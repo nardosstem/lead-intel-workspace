@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   contactInputSchema,
+  inviteMemberSchema,
   organizationRoles,
   researchCompanySchema,
   scoreIcpSchema,
@@ -84,6 +85,14 @@ describe("organization governance validation", () => {
       targetUserId: "00000000-0000-4000-8000-000000000001",
       role: "superadmin",
     }).success).toBe(false);
+  });
+
+  it("normalizes and restricts invitation roles", () => {
+    const parsed = inviteMemberSchema.safeParse({ email: "  Teammate@Example.com ", role: "admin" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data).toEqual({ email: "teammate@example.com", role: "admin" });
+    expect(inviteMemberSchema.safeParse({ email: "not-an-email", role: "member" }).success).toBe(false);
+    expect(inviteMemberSchema.safeParse({ email: "person@example.com", role: "owner" }).success).toBe(false);
   });
 
   it("prevents admins from granting owner access or changing owners", () => {

@@ -28,6 +28,12 @@ export const organizationRoleEnum = pgEnum("organization_role", [
   "admin",
   "member",
 ] as const);
+export const organizationInvitationStatusEnum = pgEnum("organization_invitation_status", [
+  "pending",
+  "accepted",
+  "failed",
+  "revoked",
+] as const);
 
 export const organizations = pgTable(
   "organizations",
@@ -89,6 +95,43 @@ export const users = pgTable(
   (table) => [
     uniqueIndex("users_email_uidx").on(table.email),
     index("users_organization_id_idx").on(table.organizationId),
+  ],
+).enableRLS();
+
+export const organizationInvitations = pgTable(
+  "organization_invitations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    invitedByUserId: uuid("invited_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    email: varchar("email", { length: 320 }).notNull(),
+    role: organizationRoleEnum("role").notNull().default("member"),
+    status: organizationInvitationStatusEnum("status").notNull().default("pending"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "organization_invitations_non_owner_role_check",
+      sql`${table.role} <> 'owner'`,
+    ),
+    index("organization_invitations_email_status_idx").on(table.email, table.status),
+    index("organization_invitations_organization_status_idx").on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
   ],
 ).enableRLS();
 

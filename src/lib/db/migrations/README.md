@@ -54,3 +54,9 @@ Migration `0011_*.sql` adds active/deactivated membership state. Deactivated
 members cannot load the workbench or execute mutations; owners must first
 demote an owner before deactivating that account. Reactivation and deactivation
 are audited tenant mutations.
+
+Migration `0012_*.sql` adds organization invitations with an expiring,
+audited lifecycle (`pending`, `accepted`, `failed`, or `revoked`). Invitations
+are delivered through the Supabase Admin Auth API, and acceptance creates the
+`public.users` profile only after the Auth callback verifies the session. The
+database keeps invitations tenant-scoped and disallows inviting an owner role.

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -8,6 +8,7 @@ import {
   companies,
   contacts,
   organizations,
+  organizationInvitations,
   pipeline,
   users,
 } from "@/lib/db";
@@ -22,6 +23,14 @@ import {
 import { getWorkbenchSnapshot, toCompanyRecord, toContactRecord } from "./data";
 import { assertMemberStatusChange, assertRoleChangeAllowed, RolePolicyError } from "./role-policy";
 import {
+  InvitationConflictError,
+  InvitationDeliveryError,
+  INVITATION_LIFETIME_MS,
+  normalizeInvitationEmail,
+  sendOrganizationInvitation,
+} from "@/lib/auth/invitations";
+import { SupabaseAdminConfigurationError } from "@/lib/auth/admin";
+import {
   companyInputSchema,
   contactInputSchema,
   updateCompanyInputSchema,
@@ -29,6 +38,7 @@ import {
   updatePipelineSchema,
   updateMemberRoleSchema,
   updateMemberStatusSchema,
+  inviteMemberSchema,
   normalizeCompanyDomain,
   workspaceSettingsSchema,
 } from "../validation";
@@ -39,6 +49,7 @@ import type {
   WorkbenchSnapshot,
   WorkspaceSettings,
   OrganizationMemberRecord,
+  OrganizationInvitationRecord,
 } from "../types";
 
 function validationFailure(error: z.ZodError): ActionResult<never> {
@@ -85,6 +96,18 @@ function actionFailure(error: unknown): ActionResult<never> {
 
   if (error instanceof RolePolicyError && error.kind === "invariant") {
     return { ok: false, error: error.message };
+  }
+
+  if (error instanceof InvitationConflictError) {
+    return { ok: false, error: error.message };
+  }
+
+  if (error instanceof SupabaseAdminConfigurationError) {
+    return { ok: false, error: error.message };
+  }
+
+  if (error instanceof InvitationDeliveryError) {
+    return { ok: false, error: "The invitation email could not be sent. Try again later." };
   }
 
   if (
@@ -370,6 +393,180 @@ export async function updateMemberStatus(
           deactivatedAt: member.deactivatedAt?.toISOString() ?? null,
           createdAt: member.createdAt.toISOString(),
         };
+      }),
+    };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+async function markInvitationFailed(
+  context: { userId: string; organizationId: string },
+  invitationId: string,
+): Promise<void> {
+  try {
+    await withLeadMutationContext(context, async (tx) => {
+      const updated = await tx
+        .update(organizationInvitations)
+        .set({ status: "failed" })
+        .where(
+          and(
+            eq(organizationInvitations.id, invitationId),
+            eq(organizationInvitations.organizationId, context.organizationId),
+            eq(organizationInvitations.status, "pending"),
+          ),
+        )
+        .returning({ id: organizationInvitations.id });
+      if (!updated[0]) return;
+
+      await tx.insert(auditLogs).values({
+        organizationId: context.organizationId,
+        actorUserId: context.userId,
+        action: "member_invitation_failed",
+        entityType: "organization_invitation",
+        entityId: invitationId,
+        changes: { status: "failed" },
+        metadata: { source: "supabase-auth-invitation" },
+      });
+    });
+  } catch (cleanupError) {
+    console.error("Invitation cleanup failed", {
+      errorName: cleanupError instanceof Error ? cleanupError.name : "UnknownError",
+    });
+  }
+}
+
+export async function inviteMember(
+  input: unknown,
+): Promise<ActionResult<OrganizationInvitationRecord>> {
+  const parsed = inviteMemberSchema.safeParse(input);
+  if (!parsed.success) return validationFailure(parsed.error);
+
+  try {
+    const context = await requireLeadAdminContext();
+    const email = normalizeInvitationEmail(parsed.data.email);
+    let invitationId: string | undefined;
+
+    try {
+      const invitation = await withLeadMutationContext(context, async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`invite-email:${email}`}, 0))`,
+        );
+        await requireLeadAdminTransaction(tx, context);
+
+        const existingProfile = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(sql`lower(${users.email}) = ${email}`)
+          .limit(1);
+        if (existingProfile[0]) {
+          throw new InvitationConflictError(
+            "That email already has an organization profile. Reactivate or manage the existing member instead.",
+          );
+        }
+
+        const existingInvitation = await tx
+          .select({ id: organizationInvitations.id })
+          .from(organizationInvitations)
+          .where(
+            and(
+              eq(organizationInvitations.email, email),
+              eq(organizationInvitations.status, "pending"),
+              gt(organizationInvitations.expiresAt, new Date()),
+            ),
+          )
+          .limit(1);
+        if (existingInvitation[0]) {
+          throw new InvitationConflictError("A pending invitation already exists for that email.");
+        }
+
+        const inserted = await tx
+          .insert(organizationInvitations)
+          .values({
+            organizationId: context.organizationId,
+            invitedByUserId: context.userId,
+            email,
+            role: parsed.data.role,
+            status: "pending",
+            expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
+          })
+          .returning();
+        const created = inserted[0];
+        if (!created) throw new Error("Invitation insert returned no row.");
+
+        await tx.insert(auditLogs).values({
+          organizationId: context.organizationId,
+          actorUserId: context.userId,
+          action: "member_invitation_created",
+          entityType: "organization_invitation",
+          entityId: created.id,
+          changes: { email, role: parsed.data.role, status: "pending" },
+          metadata: { source: "lead-workbench-settings" },
+        });
+
+        return created;
+      });
+      invitationId = invitation.id;
+      await sendOrganizationInvitation(email);
+
+      return {
+        ok: true,
+        data: {
+          id: invitation.id,
+          email: invitation.email,
+          role: invitation.role === "owner" ? "member" : invitation.role,
+          expiresAt: invitation.expiresAt.toISOString(),
+          createdAt: invitation.createdAt.toISOString(),
+        },
+      };
+    } catch (error) {
+      if (invitationId) await markInvitationFailed(context, invitationId);
+      throw error;
+    }
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+export async function revokeInvitation(
+  id: string,
+): Promise<ActionResult<{ id: string }>> {
+  const parsed = z.uuid().safeParse(id);
+  if (!parsed.success) return { ok: false, error: "Invalid invitation id." };
+
+  try {
+    const context = await requireLeadAdminContext();
+    return {
+      ok: true,
+      data: await withLeadMutationContext(context, async (tx) => {
+        await requireLeadAdminTransaction(tx, context);
+        const updated = await tx
+          .update(organizationInvitations)
+          .set({ status: "revoked" })
+          .where(
+            and(
+              eq(organizationInvitations.id, parsed.data),
+              eq(organizationInvitations.organizationId, context.organizationId),
+              eq(organizationInvitations.status, "pending"),
+            ),
+          )
+          .returning({ id: organizationInvitations.id });
+        const invitation = updated[0];
+        if (!invitation) {
+          throw new InvitationConflictError("That invitation is no longer pending.");
+        }
+
+        await tx.insert(auditLogs).values({
+          organizationId: context.organizationId,
+          actorUserId: context.userId,
+          action: "member_invitation_revoked",
+          entityType: "organization_invitation",
+          entityId: invitation.id,
+          changes: { status: "revoked" },
+          metadata: { source: "lead-workbench-settings" },
+        });
+
+        return invitation;
       }),
     };
   } catch (error) {

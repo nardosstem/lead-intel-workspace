@@ -75,9 +75,18 @@ export type OrganizationMemberRecord = {
   createdAt: string;
 };
 
+export type OrganizationInvitationRecord = {
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  expiresAt: string;
+  createdAt: string;
+};
+
 export type WorkbenchSnapshot = {
   settings: WorkspaceSettings;
   members: OrganizationMemberRecord[];
+  pendingInvitations: OrganizationInvitationRecord[];
   companies: CompanyRecord[];
   contacts: ContactRecord[];
   pipeline: PipelineRecord[];
@@ -109,6 +118,7 @@ export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
     currentUserRole: "member",
   },
   members: [],
+  pendingInvitations: [],
   companies: [],
   contacts: [],
   pipeline: [],
