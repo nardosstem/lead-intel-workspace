@@ -134,6 +134,11 @@ internals.
   stage from New through Won/Lost. Composite organization-aware foreign keys
   prevent contacts and pipeline rows from crossing tenant boundaries.
 
+Ingestion stores an organization-scoped run token plus a sanitized error state
+on the company. Completion and failure writes require the active token, so a
+late retry cannot overwrite a newer run; failed records remain visible and can
+be retried from the company detail view.
+
 The initial migration adds the cross-schema foreign key to
 `auth.users(id)` manually. This keeps Supabase's managed `auth` schema outside
 Drizzle ownership. It also enables row-level security on all public tables with

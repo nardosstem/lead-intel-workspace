@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   ArrowRight,
   Building2,
@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 
 import { companyStatuses } from "../validation";
+import { triggerDomainIngestion } from "../actions";
 import { pipelineStages, type PipelineStage } from "@/lib/db/pipeline";
 import {
   deleteCompany,
@@ -505,6 +506,25 @@ export function LeadWorkbench({
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineRecord | null>(null);
 
+  const hasActiveEnrichment = data.companies.some(
+    (company) => company.enrichmentStatus === "processing",
+  );
+
+  useEffect(() => {
+    if (!hasActiveEnrichment) return;
+
+    const refreshTimer = window.setInterval(() => {
+      void getLeads()
+        .then(setData)
+        .catch(() => {
+          // The foreground workspace remains usable with its last known data;
+          // the next manual refresh will surface a current server response.
+        });
+    }, 5_000);
+
+    return () => window.clearInterval(refreshTimer);
+  }, [hasActiveEnrichment]);
+
   const companyColumns = useMemo<LeadTableColumn<CompanyRecord>[]>(
     () => [
       {
@@ -693,6 +713,30 @@ export function LeadWorkbench({
     });
   }
 
+  function retryEnrichment(company: CompanyRecord) {
+    const domain = company.domain ?? company.website;
+    if (!domain) {
+      toast.error("Add a company website before retrying enrichment.");
+      return;
+    }
+
+    startRefresh(async () => {
+      const result = await triggerDomainIngestion(domain);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+
+      setSelectedCompany((current) =>
+        current?.id === company.id
+          ? { ...current, enrichmentStatus: "processing", enrichmentError: null }
+          : current,
+      );
+      toast.success(result.data.message);
+      refresh();
+    });
+  }
+
   function confirmDeleteCompany(company: CompanyRecord) {
     if (!window.confirm(`Delete ${company.name} and its contacts?`)) return;
     startRefresh(async () => {
@@ -850,6 +894,16 @@ export function LeadWorkbench({
                 <div><p className="text-xs text-muted-foreground">Enrichment</p><p className="mt-1 font-medium capitalize">{selectedCompany.enrichmentStatus}</p></div>
                 <div><p className="text-xs text-muted-foreground">ICP score</p><p className="mt-1 font-medium">{selectedCompany.icpScore ?? "—"}{selectedCompany.icpScore === null ? "" : "/100"}</p></div>
               </div>
+              {selectedCompany.enrichmentError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
+                  <p className="font-medium">Enrichment failed</p>
+                  <p className="mt-1 text-destructive/80">{selectedCompany.enrichmentError}. Retry after checking provider configuration.</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => retryEnrichment(selectedCompany)} disabled={isRefreshing}>
+                    <RefreshCw className={isRefreshing ? "size-3.5 animate-spin" : "size-3.5"} aria-hidden="true" />
+                    Retry enrichment
+                  </Button>
+                </div>
+              ) : null}
               {selectedCompany.painPoints.length > 0 && (
                 <div className="rounded-lg border p-4 text-sm">
                   <p className="font-medium">Likely pain points</p>

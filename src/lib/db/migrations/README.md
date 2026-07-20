@@ -27,3 +27,8 @@ Migration `0006_*.sql` adds composite organization-aware foreign keys for
 company/contact relationships. This prevents a database client from attaching
 a lead or pipeline record to a target owned by another organization, even if
 application-level authorization is bypassed.
+
+Migration `0007_*.sql` adds an organization-scoped enrichment run token and
+sanitized failure fields. Inngest writes the token before provider work and
+requires it for completion/failure updates, so stale retries cannot overwrite
+a newer run or regress a completed company.

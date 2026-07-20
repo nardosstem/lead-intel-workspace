@@ -1,14 +1,17 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
+import { NonRetriableError } from "inngest";
 import { z } from "zod";
 
 import { inngest, leadIngestRequested } from "@/inngest/client";
 import {
+  ApolloApiError,
+  ApolloConfigurationError,
   ingestApolloLeads,
-  normalizeDomain,
   type ApolloContactPayload,
   type ApolloLeadBatch,
 } from "@/lib/apollo";
 import { getAIProvider } from "@/lib/ai/server";
+import { AIProviderError } from "@/lib/ai";
 import { auditLogs, companies, contacts, pipeline, users } from "@/lib/db";
 import { scrapeDomain, type FirecrawlScrapeResult } from "@/lib/firecrawl";
 
@@ -30,6 +33,38 @@ type InitialLeadData = Readonly<{
 }>;
 
 type EnrichmentData = z.infer<typeof aiEnrichmentSchema>;
+
+export function safeEnrichmentError(error: unknown): string {
+  if (error instanceof Error) {
+    const status = "status" in error && typeof error.status === "number" ? ` (HTTP ${error.status})` : "";
+    return `${error.name}${status}`.slice(0, 1000);
+  }
+  return "UnknownError";
+}
+
+export function toWorkflowError(error: unknown): unknown {
+  if (error instanceof ApolloConfigurationError) {
+    return new NonRetriableError("Apollo is not configured for lead ingestion.", { cause: error });
+  }
+
+  if (
+    error instanceof ApolloApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.status !== 429
+  ) {
+    return new NonRetriableError("Apollo rejected the lead ingestion request.", { cause: error });
+  }
+
+  if (
+    error instanceof AIProviderError &&
+    (/not configured|invalid JSON|HTTP 4\d\d/i.test(error.message))
+  ) {
+    return new NonRetriableError("Claude MCP cannot complete this enrichment request.", { cause: error });
+  }
+
+  return error;
+}
 
 function normalizeComparable(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
@@ -53,9 +88,83 @@ function sameContact(left: typeof contacts.$inferSelect, right: ApolloContactPay
   );
 }
 
+async function initializeIngestion(
+  domain: string,
+  context: LeadContext,
+  runId: string,
+): Promise<string> {
+  return withLeadMutationContext(context, async (tx) => {
+    const actor = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
+      .limit(1);
+    if (!actor[0]) {
+      throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
+    }
+
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${context.organizationId}:${domain}`}, 0))`,
+    );
+
+    const existing = await tx
+      .select({ id: companies.id })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.organizationId, context.organizationId),
+          or(
+            eq(companies.domain, domain),
+            eq(companies.website, `https://${domain}`),
+            eq(companies.website, `http://${domain}`),
+            eq(companies.website, `https://www.${domain}`),
+            eq(companies.website, `http://www.${domain}`),
+          ),
+        ),
+      )
+      .limit(1);
+
+    const companyId = existing[0]?.id ?? (await tx
+      .insert(companies)
+      .values({
+        organizationId: context.organizationId,
+        domain,
+        name: domain,
+        website: `https://${domain}`,
+        status: "prospect",
+        enrichmentStatus: "processing",
+        enrichmentRunId: runId,
+        enrichmentError: null,
+        enrichmentErrorAt: null,
+      })
+      .returning({ id: companies.id }))[0]?.id;
+
+    if (!companyId) throw new Error("Unable to initialize the ingestion company.");
+
+    await tx
+      .update(companies)
+      .set({
+        enrichmentStatus: "processing",
+        enrichmentRunId: runId,
+        enrichmentError: null,
+        enrichmentErrorAt: null,
+      })
+      .where(and(eq(companies.id, companyId), eq(companies.organizationId, context.organizationId)));
+
+    await tx
+      .insert(pipeline)
+      .values({ organizationId: context.organizationId, companyId, stage: "new" })
+      .onConflictDoNothing({ target: pipeline.companyId });
+
+    return companyId;
+  });
+}
+
 async function saveInitialData(
   batch: ApolloLeadBatch,
   context: LeadContext,
+  companyId: string,
+  runId: string,
 ): Promise<InitialLeadData> {
   return withLeadMutationContext(context, async (tx) => {
     const actor = await tx
@@ -69,7 +178,7 @@ async function saveInitialData(
       )
       .limit(1);
     if (!actor[0]) {
-      throw new Error("Ingestion actor is not a member of the target organization.");
+      throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
     }
 
     // Serialize concurrent retries/submissions for the same tenant/domain so
@@ -78,121 +187,51 @@ async function saveInitialData(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${context.organizationId}:${batch.domain}`}, 0))`,
     );
 
-    const organizationCompanies = await tx
+    const companyRows = await tx
       .select()
       .from(companies)
-      .where(eq(companies.organizationId, context.organizationId));
-    let company = organizationCompanies.find(
-      (candidate) =>
-        candidate.domain === batch.domain ||
-        (candidate.website && normalizeDomain(candidate.website) === batch.domain),
-    );
-
-    if (!company) {
-      const inserted = await tx
-        .insert(companies)
-        .values({
-          organizationId: context.organizationId,
-          domain: batch.domain,
-          name: batch.company.name,
-          website: batch.company.website,
-          industry: batch.company.industry,
-          size: batch.company.size,
-          location: batch.company.location,
-          status: "prospect",
-          enrichmentStatus: "processing",
-        })
-        .onConflictDoNothing({
-          target: [companies.organizationId, companies.domain],
-        })
-        .returning();
-      company = inserted[0];
-      if (!company) {
-        const concurrent = await tx
-          .select()
-          .from(companies)
-          .where(
-            and(
-              eq(companies.organizationId, context.organizationId),
-              eq(companies.domain, batch.domain),
-            ),
-          )
-          .limit(1);
-        company = concurrent[0];
-        if (!company) throw new Error("Apollo company insert returned no row.");
-      }
-
-      if (inserted[0]) {
-        await tx.insert(pipeline).values({
-          organizationId: context.organizationId,
-          companyId: company.id,
-          stage: "new",
-        });
-      } else {
-        const updated = await tx
-          .update(companies)
-          .set({ enrichmentStatus: "processing", domain: batch.domain })
-          .where(
-            and(
-              eq(companies.id, company.id),
-              eq(companies.organizationId, context.organizationId),
-            ),
-          )
-          .returning();
-        company = updated[0] ?? company;
-
-        const existingCompanyPipeline = await tx
-          .select({ id: pipeline.id })
-          .from(pipeline)
-          .where(
-            and(
-              eq(pipeline.organizationId, context.organizationId),
-              eq(pipeline.companyId, company.id),
-            ),
-          )
-          .limit(1);
-        if (!existingCompanyPipeline[0]) {
-          await tx
-            .insert(pipeline)
-            .values({
-              organizationId: context.organizationId,
-              companyId: company.id,
-              stage: "new",
-            })
-            .onConflictDoNothing({ target: pipeline.companyId });
-        }
-      }
-    } else {
-      const updated = await tx
-        .update(companies)
-        .set({ enrichmentStatus: "processing", domain: batch.domain })
-        .where(
-          and(
-            eq(companies.id, company.id),
-            eq(companies.organizationId, context.organizationId),
-          ),
-        )
-        .returning();
-      company = updated[0] ?? company;
-
-      const existingCompanyPipeline = await tx
-        .select({ id: pipeline.id })
-        .from(pipeline)
-        .where(
-          and(
-            eq(pipeline.organizationId, context.organizationId),
-            eq(pipeline.companyId, company.id),
-          ),
-        )
-        .limit(1);
-      if (!existingCompanyPipeline[0]) {
-        await tx.insert(pipeline).values({
-          organizationId: context.organizationId,
-          companyId: company.id,
-          stage: "new",
-        });
-      }
+      .where(
+        and(
+          eq(companies.id, companyId),
+          eq(companies.organizationId, context.organizationId),
+        ),
+      )
+      .limit(1);
+    const company = companyRows[0];
+    if (!company || company.enrichmentRunId !== runId) {
+      throw new NonRetriableError("Ingestion run is stale or its company record was removed.");
     }
+
+    const updatedCompany = await tx
+      .update(companies)
+      .set({
+        name: batch.company.name,
+        website: batch.company.website,
+        industry: batch.company.industry,
+        size: batch.company.size,
+        location: batch.company.location,
+        domain: batch.domain,
+        enrichmentStatus: "processing",
+        enrichmentError: null,
+        enrichmentErrorAt: null,
+      })
+      .where(
+        and(
+          eq(companies.id, company.id),
+          eq(companies.organizationId, context.organizationId),
+          eq(companies.enrichmentRunId, runId),
+        ),
+      )
+      .returning();
+    const persistedCompany = updatedCompany[0];
+    if (!persistedCompany) {
+      throw new NonRetriableError("Ingestion run lost ownership of the company record.");
+    }
+
+    await tx
+      .insert(pipeline)
+      .values({ organizationId: context.organizationId, companyId: persistedCompany.id, stage: "new" })
+      .onConflictDoNothing({ target: pipeline.companyId });
 
     const existingContacts = await tx
       .select()
@@ -200,15 +239,33 @@ async function saveInitialData(
       .where(
         and(
           eq(contacts.organizationId, context.organizationId),
-          eq(contacts.companyId, company.id),
+          eq(contacts.companyId, persistedCompany.id),
         ),
       );
     const contactIds: string[] = [];
 
     for (const contactPayload of batch.contacts) {
-      const existing = existingContacts.find((candidate) =>
+      const existingByApolloId = await (contactPayload.apolloId
+        ? tx
+            .select()
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.organizationId, context.organizationId),
+                eq(contacts.apolloId, contactPayload.apolloId),
+              ),
+            )
+            .limit(1)
+        : Promise.resolve([]));
+      const existing = existingByApolloId[0] ?? existingContacts.find((candidate) =>
         sameContact(candidate, contactPayload),
       );
+      if (existing && existing.companyId !== persistedCompany.id) {
+        // Apollo can return a person already associated with another company
+        // in this organization. Do not silently reassign that relationship or
+        // create a duplicate against the org-wide Apollo ID constraint.
+        continue;
+      }
       if (existing) {
         if (!existing.apolloId) {
           await tx
@@ -249,7 +306,7 @@ async function saveInitialData(
         .insert(contacts)
         .values({
           organizationId: context.organizationId,
-          companyId: company.id,
+          companyId: persistedCompany.id,
           apolloId: contactPayload.apolloId,
           name: contactPayload.name,
           title: contactPayload.title,
@@ -274,7 +331,7 @@ async function saveInitialData(
     }
 
     return {
-      companyId: company.id,
+      companyId: persistedCompany.id,
       contactIds,
       primaryContact: batch.contacts[0] ?? null,
     };
@@ -285,25 +342,57 @@ async function markEnrichmentFailed(
   context: LeadContext,
   companyId: string,
   domain: string,
+  runId: string,
+  error: unknown,
 ): Promise<void> {
   await withLeadMutationContext(context, async (tx) => {
-    await tx
+    const actor = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
+      .limit(1);
+    const updated = await tx
       .update(companies)
-      .set({ enrichmentStatus: "failed" })
+      .set({
+        enrichmentStatus: "failed",
+        enrichmentError: safeEnrichmentError(error),
+        enrichmentErrorAt: new Date(),
+      })
       .where(
         and(
           eq(companies.id, companyId),
           eq(companies.organizationId, context.organizationId),
+          eq(companies.enrichmentRunId, runId),
         ),
-      );
+      )
+      .returning({ id: companies.id });
+    if (!updated[0]) return;
+
+    const existingFailureAudit = await tx
+      .select({ id: auditLogs.id })
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.organizationId, context.organizationId),
+          eq(auditLogs.action, "enrichment_failed"),
+          eq(auditLogs.entityId, companyId),
+          sql`${auditLogs.metadata} ->> 'runId' = ${runId}`,
+        ),
+      )
+      .limit(1);
+    if (existingFailureAudit[0]) return;
+
     await tx.insert(auditLogs).values({
       organizationId: context.organizationId,
-      actorUserId: context.userId,
+      actorUserId: actor[0]?.id ?? null,
       action: "enrichment_failed",
       entityType: "company",
       entityId: companyId,
-      changes: { enrichmentStatus: "failed" },
-      metadata: { source: "apollo-firecrawl-inngest", domain },
+      changes: {
+        enrichmentStatus: "failed",
+        enrichmentError: safeEnrichmentError(error),
+      },
+      metadata: { source: "apollo-firecrawl-inngest", domain, runId },
     });
   });
 }
@@ -317,7 +406,12 @@ export const ingestLead = inngest.createFunction(
     // second workflow while still allowing a fresh run after the Inngest
     // idempotency window expires. Database-level matching below remains the
     // final safety boundary for retries.
-    idempotency: "event.data.organizationId + '-' + event.data.domain",
+    idempotency: "event.data.runId",
+    concurrency: {
+      limit: 1,
+      key: "event.data.organizationId + '-' + event.data.domain",
+      scope: "fn",
+    },
     triggers: [{ event: leadIngestRequested }],
   },
   async ({ event, step }) => {
@@ -325,16 +419,20 @@ export const ingestLead = inngest.createFunction(
       organizationId: event.data.organizationId,
       userId: event.data.actorUserId,
     };
-
-    const apolloData = await step.run("fetch-apollo-data", async () =>
-      ingestApolloLeads(event.data.domain, event.data.targetTitles),
-    );
-
-    const initialData = await step.run("save-initial-data", async () =>
-      saveInitialData(apolloData, context),
+    const runId = event.data.runId;
+    const placeholderCompanyId = await step.run("initialize-ingestion", async () =>
+      initializeIngestion(event.data.domain, context, runId),
     );
 
     try {
+      const apolloData = await step.run("fetch-apollo-data", async () =>
+        ingestApolloLeads(event.data.domain, event.data.targetTitles),
+      );
+
+      const initialData = await step.run("save-initial-data", async () =>
+        saveInitialData(apolloData, context, placeholderCompanyId, runId),
+      );
+
       const scrape: FirecrawlScrapeResult = await step.run(
         "scrape-website",
         async () => scrapeDomain(apolloData.domain),
@@ -385,10 +483,14 @@ export const ingestLead = inngest.createFunction(
             and(
               eq(companies.id, initialData.companyId),
               eq(companies.organizationId, context.organizationId),
+              eq(companies.enrichmentRunId, runId),
+              eq(companies.enrichmentStatus, "processing"),
             ),
           )
           .returning({ id: companies.id });
-        if (!updated[0]) throw new Error("Lead company was not found during enrichment save.");
+        if (!updated[0]) {
+          throw new NonRetriableError("Ingestion run no longer owns the company record.");
+        }
 
         await tx.insert(auditLogs).values({
           organizationId: context.organizationId,
@@ -402,6 +504,7 @@ export const ingestLead = inngest.createFunction(
             outreachDraftGenerated: true,
             scraped: Boolean(scrape.markdown),
             scrapeWarning: scrape.warning ?? null,
+            runId,
           },
           metadata: {
             source: "apollo-firecrawl-inngest",
@@ -421,17 +524,24 @@ export const ingestLead = inngest.createFunction(
         scrapeWarning: scrape.warning ?? null,
       };
     } catch (error) {
+      const workflowError = toWorkflowError(error);
       try {
         await step.run("mark-enrichment-failed", async () => {
-          await markEnrichmentFailed(context, initialData.companyId, apolloData.domain);
+          await markEnrichmentFailed(
+            context,
+            placeholderCompanyId,
+            event.data.domain,
+            runId,
+            error,
+          );
         });
       } catch (failureError) {
         console.error("Unable to mark lead enrichment as failed", {
           errorName: failureError instanceof Error ? failureError.name : "UnknownError",
-          companyId: initialData.companyId,
+          companyId: placeholderCompanyId,
         });
       }
-      throw error;
+      throw workflowError;
     }
   },
 );

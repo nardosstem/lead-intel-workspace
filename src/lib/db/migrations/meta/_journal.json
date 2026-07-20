@@ -50,6 +50,13 @@
       "when": 1784523219264,
       "tag": "0006_friendly_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784529857585,
+      "tag": "0007_grey_caretaker",
+      "breakpoints": true
     }
   ]
 }

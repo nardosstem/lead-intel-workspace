@@ -10,6 +10,7 @@ export type CompanyRecord = {
   location: string | null;
   status: string;
   enrichmentStatus: string;
+  enrichmentError: string | null;
   icpScore: number | null;
   painPoints: string[];
   outreachDraft: string | null;

@@ -35,6 +35,7 @@ export function toCompanyRecord(company: typeof companies.$inferSelect): Company
     location: company.location,
     status: company.status,
     enrichmentStatus: company.enrichmentStatus,
+    enrichmentError: company.enrichmentError,
     icpScore: company.icpScore,
     painPoints: [...company.painPoints],
     outreachDraft: company.outreachDraft,

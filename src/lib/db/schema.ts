@@ -119,6 +119,9 @@ export const companies = pgTable(
     enrichmentStatus: varchar("enrichment_status", { length: 40 })
       .notNull()
       .default("pending"),
+    enrichmentRunId: uuid("enrichment_run_id"),
+    enrichmentError: varchar("enrichment_error", { length: 1000 }),
+    enrichmentErrorAt: timestamp("enrichment_error_at", { withTimezone: true }),
     icpScore: integer("icp_score"),
     painPoints: jsonb("pain_points")
       .$type<ReadonlyArray<string>>()
@@ -152,6 +155,10 @@ export const companies = pgTable(
     index("companies_enrichment_status_idx").on(
       table.organizationId,
       table.enrichmentStatus,
+    ),
+    index("companies_enrichment_run_id_idx").on(
+      table.organizationId,
+      table.enrichmentRunId,
     ),
     index("companies_created_at_idx").on(table.organizationId, table.createdAt),
   ],

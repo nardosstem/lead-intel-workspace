@@ -8,6 +8,7 @@ export const leadIngestRequestedDataSchema = z.object({
   targetTitles: z.array(z.string().min(1).max(120)).min(1).max(10),
   organizationId: z.uuid(),
   actorUserId: z.uuid(),
+  runId: z.uuid(),
 });
 
 export type LeadIngestRequestedData = z.infer<

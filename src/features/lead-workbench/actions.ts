@@ -53,6 +53,7 @@ export async function triggerDomainIngestion(
       targetTitles: ["CEO", "Founder", "VP", "Director"],
       organizationId: context.organizationId,
       actorUserId: context.userId,
+      runId: crypto.randomUUID(),
     });
     await event.validate();
     await inngest.send({ name: event.name, data: event.data });
