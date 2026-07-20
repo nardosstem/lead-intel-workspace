@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -817,6 +817,7 @@ export function LeadWorkbench({
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineRecord | null>(null);
   const [isPollingIngestion, setIsPollingIngestion] = useState(false);
+  const latestReadRef = useRef(0);
   const router = useRouter();
 
   const hasActiveEnrichment = data.metrics.processingCompanies > 0;
@@ -832,8 +833,11 @@ export function LeadWorkbench({
     if (!hasActiveEnrichment) return;
 
     const refreshTimer = window.setInterval(() => {
+      const readId = ++latestReadRef.current;
       void getLeads(listQuery)
-        .then(setData)
+        .then((next) => {
+          if (readId === latestReadRef.current) setData(next);
+        })
         .catch(() => {
           // The foreground workspace remains usable with its last known data;
           // the next manual refresh will surface a current server response.
@@ -849,8 +853,11 @@ export function LeadWorkbench({
     let attempts = 0;
     const poll = () => {
       attempts += 1;
+      const readId = ++latestReadRef.current;
       void getLeads(listQuery)
-        .then(setData)
+        .then((next) => {
+          if (readId === latestReadRef.current) setData(next);
+        })
         .catch(() => undefined)
         .finally(() => {
           if (attempts >= 15) setIsPollingIngestion(false);
@@ -968,11 +975,12 @@ export function LeadWorkbench({
   ];
 
   function refresh(query = listQuery) {
+    const readId = ++latestReadRef.current;
     setListQuery(query);
     startRefresh(async () => {
       try {
         const next = await getLeads(query);
-        setData(next);
+        if (readId === latestReadRef.current) setData(next);
       } catch {
         toast.error("Could not refresh the workspace. Try again.");
       }
@@ -980,10 +988,12 @@ export function LeadWorkbench({
   }
 
   function loadListQuery(query: WorkbenchQuery) {
+    const readId = ++latestReadRef.current;
     setListQuery(query);
     startRefresh(async () => {
       try {
-        setData(await getLeads(query));
+        const next = await getLeads(query);
+        if (readId === latestReadRef.current) setData(next);
       } catch {
         toast.error("Could not load that page. Try again.");
       }
