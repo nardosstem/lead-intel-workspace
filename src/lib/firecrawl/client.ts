@@ -2,6 +2,8 @@ import "server-only";
 
 import { Firecrawl } from "@mendable/firecrawl-js";
 
+import { isPublicHostname } from "@/lib/domains";
+
 const SCRAPE_TIMEOUT_MS = 30_000;
 const MAX_MARKDOWN_LENGTH = 60_000;
 
@@ -44,13 +46,39 @@ export class FirecrawlClient {
   }
 
   async scrapeUrl(url: string): Promise<FirecrawlScrapeResult> {
+    let parsedUrl: URL;
     try {
-      const result = await this.client.scrapeUrl(url, { formats: ["markdown"] });
+      parsedUrl = new URL(url);
+    } catch {
+      return {
+        sourceUrl: url,
+        markdown: "",
+        truncated: false,
+        warning: "Firecrawl rejected an unsafe or invalid company URL.",
+      };
+    }
+
+    if (
+      parsedUrl.protocol !== "https:" ||
+      parsedUrl.username ||
+      parsedUrl.password ||
+      !isPublicHostname(parsedUrl.hostname)
+    ) {
+      return {
+        sourceUrl: url,
+        markdown: "",
+        truncated: false,
+        warning: "Firecrawl rejected an unsafe or invalid company URL.",
+      };
+    }
+
+    try {
+      const result = await this.client.scrapeUrl(parsedUrl.toString(), { formats: ["markdown"] });
       const markdown = typeof result.markdown === "string" ? result.markdown : "";
       const truncated = markdown.length > MAX_MARKDOWN_LENGTH;
 
       return {
-        sourceUrl: url,
+        sourceUrl: parsedUrl.toString(),
         markdown: truncated ? markdown.slice(0, MAX_MARKDOWN_LENGTH) : markdown,
         truncated,
         ...(markdown ? {} : { warning: "Firecrawl returned no Markdown content." }),
@@ -61,9 +89,9 @@ export class FirecrawlClient {
         ? "Firecrawl timed out while scraping the website. AI enrichment continued with Apollo data."
         : "Firecrawl could not scrape the website. AI enrichment continued with Apollo data.";
 
-      console.warn("Firecrawl scrape failed", { url, message });
+      console.warn("Firecrawl scrape failed", { url: parsedUrl.toString(), message });
       return {
-        sourceUrl: url,
+        sourceUrl: parsedUrl.toString(),
         markdown: "",
         truncated: false,
         warning,
@@ -91,6 +119,15 @@ export async function scrapeDomain(domain: string): Promise<FirecrawlScrapeResul
     }
   })();
   const sourceUrl = `https://${normalizedDomain}`;
+
+  if (!isPublicHostname(normalizedDomain)) {
+    return {
+      sourceUrl,
+      markdown: "",
+      truncated: false,
+      warning: "Firecrawl rejected an unsafe or invalid company domain.",
+    };
+  }
 
   try {
     return await getFirecrawlClient().scrapeUrl(sourceUrl);

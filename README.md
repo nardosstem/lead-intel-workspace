@@ -44,6 +44,8 @@ FIRECRAWL_API_KEY=fc-your-firecrawl-api-key
 INNGEST_EVENT_KEY=your-inngest-event-key
 INNGEST_SIGNING_KEY=signkey-prod-...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Server-only; use a stable value across production instances.
+NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=base64-or-hex-deployment-secret
 # Server-only; required for organization invitations. Never expose this key to the browser.
 SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 ```
@@ -210,7 +212,8 @@ confirm the user before signing in.
 On the first authenticated visit, the app automatically creates the required
 `public.users` profile. If the seeded `lead-intel-demo` organization exists and
 has no members, that first user is attached to it; otherwise a new isolated
-workspace is created. For controlled staging/provisioning, you can instead
+workspace is created. First-login organization/member provisioning is recorded
+in the tenant audit history. For controlled staging/provisioning, you can instead
 link an Auth user explicitly in the Supabase SQL Editor, replacing the email if
 needed:
 
@@ -280,6 +283,8 @@ const service = new LeadResearchService(provider); // accepts IAIProvider
 
 Provider calls must execute on the server. Include organization, actor, and
 trace context; do not send secrets or unnecessary personal data in prompts.
+AI actions re-read tenant-scoped company/contact records by ID before creating
+provider prompts, and outreach prompts omit contact email addresses.
 
 ### Lead workbench behavior
 
@@ -332,6 +337,13 @@ be completed in staging or the hosting environment:
   requests with `INNGEST_SIGNING_KEY`; unsigned requests are rejected.
 - Supabase Auth must allow the deployed `/auth/callback` and reset-password
   redirect URLs, and migrations/boundary checks must run against staging.
+- Configure Supabase Auth email delivery (SMTP or the hosted email provider),
+  invitation/reset templates, and the sender domain before relying on sign-up
+  or member invitations; local development can use Supabase's test mailer.
+- Multi-instance deployments must set one stable
+  `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` across all instances; keep it
+  server-only and rotate it deliberately because rotation invalidates older
+  action references. Generate a suitable value with `openssl rand -base64 32`.
 - Run an authenticated two-organization CRUD/authorization test and one real
   Apollo → Firecrawl → MCP ingestion before enabling provider-consuming CI.
 
@@ -359,6 +371,9 @@ Then:
 
 - Secrets stay in ignored root `.env*` files; only `.env.example` is committed.
 - Server modules use `server-only` to prevent accidental client bundling.
+- Responses include baseline clickjacking, MIME-sniffing, referrer, and
+  browser-permission protections; add a deployment-specific CSP before loading
+  third-party scripts or embedding the app.
 - Public database tables start with RLS enabled and no allow policies.
 - Supabase user identity is server verified; session presence alone is not
   authorization.

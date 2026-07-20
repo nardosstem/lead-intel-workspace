@@ -3,12 +3,15 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 
 import { getCurrentUser, requireCurrentUser } from "@/lib/auth/user";
-import { getDatabase, organizations, users, type Database } from "@/lib/db";
+import { auditLogs, getDatabase, organizations, users, type Database } from "@/lib/db";
 
 export type LeadContext = Readonly<{
   userId: string;
   organizationId: string;
 }>;
+
+type DatabaseTransactionCallback = Parameters<Database["transaction"]>[0];
+export type LeadTransaction = Parameters<DatabaseTransactionCallback>[0];
 
 export async function getLeadContext(): Promise<LeadContext | null> {
   const user = await getCurrentUser();
@@ -89,6 +92,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
       .limit(1);
 
     let organizationId: string | undefined = demoOrganization[0]?.id;
+    let organizationCreated = false;
 
     if (organizationId) {
       const demoMembers = await tx
@@ -114,6 +118,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
         .returning({ id: organizations.id });
 
       organizationId = insertedOrganization[0]?.id;
+      organizationCreated = Boolean(organizationId);
 
       if (!organizationId) {
         const existingOrganization = await tx
@@ -129,7 +134,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
       throw new Error("Unable to provision an organization workspace.");
     }
 
-    await tx
+    const insertedProfile = await tx
       .insert(users)
       .values({
         id: user.id,
@@ -138,7 +143,34 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
         fullName,
         role: "owner",
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: users.id, organizationId: users.organizationId });
+
+    if (insertedProfile[0]) {
+      const provisioningAuditRows = [
+        ...(organizationCreated
+          ? [{
+              organizationId,
+              actorUserId: user.id,
+              action: "workspace_created",
+              entityType: "organization",
+              entityId: organizationId,
+              changes: { name: fullName ? `${fullName}'s Workspace` : "Lead Intel Workspace" },
+              metadata: { source: "first-login-provisioning" },
+            }]
+          : []),
+        {
+          organizationId,
+          actorUserId: user.id,
+          action: "member_provisioned",
+          entityType: "user",
+          entityId: user.id,
+          changes: { role: "owner", email },
+          metadata: { source: "first-login-provisioning" },
+        },
+      ];
+      await tx.insert(auditLogs).values(provisioningAuditRows);
+    }
 
     const profile = await tx
       .select({ organizationId: users.organizationId })
@@ -177,6 +209,29 @@ export async function requireLeadContext(): Promise<LeadContext> {
   return { userId: user.id, organizationId };
 }
 
+/** Re-checks active membership inside the same transaction as a foreground mutation. */
+export async function requireLeadTransaction(
+  tx: LeadTransaction,
+  context: LeadContext,
+): Promise<void> {
+  const profile = await tx
+    .select({ id: users.id, isActive: users.isActive })
+    .from(users)
+    .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
+    .for("update")
+    .limit(1);
+  const membership = profile[0];
+
+  if (!membership) {
+    throw new Error("An organization profile is required for lead access.");
+  }
+  if (!membership.isActive) {
+    const error = new Error("Workspace access is disabled for this account.");
+    error.name = "WorkspaceAccessDisabledError";
+    throw error;
+  }
+}
+
 export async function requireLeadAdminContext(): Promise<LeadContext & { role: "owner" | "admin" }> {
   const user = await requireCurrentUser();
   const db = getDatabase();
@@ -207,9 +262,6 @@ export async function requireLeadAdminContext(): Promise<LeadContext & { role: "
     role: membership.role,
   };
 }
-
-type DatabaseTransactionCallback = Parameters<Database["transaction"]>[0];
-export type LeadTransaction = Parameters<DatabaseTransactionCallback>[0];
 
 /** Re-checks and locks the actor membership inside the mutation transaction. */
 export async function requireLeadAdminTransaction(
@@ -245,6 +297,7 @@ export async function requireLeadAdminTransaction(
 export async function withLeadMutationContext<T>(
   context: LeadContext,
   operation: (tx: LeadTransaction, context: LeadContext) => Promise<T>,
+  options: Readonly<{ allowInactiveActor?: boolean }> = {},
 ): Promise<T> {
   const db = getDatabase();
 
@@ -255,6 +308,9 @@ export async function withLeadMutationContext<T>(
     await tx.execute(
       sql`select set_config('app.current_organization_id', ${context.organizationId}, true)`,
     );
+    if (!options.allowInactiveActor) {
+      await requireLeadTransaction(tx, context);
+    }
     return operation(tx, context);
   });
 }

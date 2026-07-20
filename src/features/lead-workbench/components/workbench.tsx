@@ -203,7 +203,9 @@ function DashboardView({
   onPipelineSelect: (item: PipelineRecord) => void;
 }>) {
   const recent = data.companies.slice(0, 5);
-  const due = data.pipeline.filter((item) => isDue(item.nextFollowUpAt));
+  const due = data.pipeline.filter(
+    (item) => item.stage !== "won" && item.stage !== "lost" && isDue(item.nextFollowUpAt),
+  );
   const activePipeline = data.pipeline.filter(
     (item) => item.stage !== "won" && item.stage !== "lost",
   );
@@ -628,7 +630,7 @@ function SettingsView({
                   variant="outline"
                   size="sm"
                   onClick={() => changeMemberStatus(member)}
-                  disabled={settings.currentUserRole === "member" || member.role === "owner" || pendingMemberId === member.id}
+                  disabled={settings.currentUserRole === "member" || (member.role === "owner" && member.isActive) || pendingMemberId === member.id}
                 >
                   {member.isActive ? "Deactivate" : "Reactivate"}
                 </Button>
@@ -771,6 +773,7 @@ export function LeadWorkbench({
   const [selectedCompany, setSelectedCompany] = useState<CompanyRecord | null>(null);
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineRecord | null>(null);
+  const [isPollingIngestion, setIsPollingIngestion] = useState(false);
   const router = useRouter();
 
   const hasActiveEnrichment = data.companies.some(
@@ -791,6 +794,25 @@ export function LeadWorkbench({
 
     return () => window.clearInterval(refreshTimer);
   }, [hasActiveEnrichment]);
+
+  useEffect(() => {
+    if (!isPollingIngestion) return;
+
+    let attempts = 0;
+    const poll = () => {
+      attempts += 1;
+      void getLeads()
+        .then(setData)
+        .catch(() => undefined)
+        .finally(() => {
+          if (attempts >= 15) setIsPollingIngestion(false);
+        });
+    };
+
+    poll();
+    const timer = window.setInterval(poll, 2_000);
+    return () => window.clearInterval(timer);
+  }, [isPollingIngestion]);
 
   const companyColumns = useMemo<LeadTableColumn<CompanyRecord>[]>(
     () => [
@@ -1063,7 +1085,14 @@ export function LeadWorkbench({
             <RefreshCw className={isRefreshing ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
             Refresh
           </Button>
-          {view === "dashboard" && <QuickAddDomain onStarted={refresh} />}
+          {view === "dashboard" && (
+            <QuickAddDomain
+              onStarted={() => {
+                setIsPollingIngestion(true);
+                refresh();
+              }}
+            />
+          )}
           <CsvImport onImported={refresh} />
           <Button type="button" size="sm" onClick={() => setCompanyDialog("create")}>
             <Plus className="size-4" aria-hidden="true" />

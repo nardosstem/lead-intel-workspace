@@ -210,6 +210,8 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       .orderBy(desc(auditLogs.createdAt))
       .limit(100),
   ]);
+  const currentUserRole =
+    memberRows.find((member) => member.id === context.userId)?.role ?? "member";
 
   return {
     settings: {
@@ -217,8 +219,7 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       currentUserId: context.userId,
       defaultStage: organizationRows[0]?.defaultStage ?? "new",
       followUpDays: organizationRows[0]?.followUpDays ?? 7,
-      currentUserRole:
-        memberRows.find((member) => member.id === context.userId)?.role ?? "member",
+      currentUserRole,
     },
     members: memberRows.map((member): OrganizationMemberRecord => ({
       id: member.id,
@@ -229,17 +230,20 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       deactivatedAt: member.deactivatedAt?.toISOString() ?? null,
       createdAt: member.createdAt.toISOString(),
     })),
-    pendingInvitations: invitationRows.flatMap((invitation): OrganizationInvitationRecord[] =>
-      invitation.role === "owner"
+    pendingInvitations:
+      currentUserRole === "member"
         ? []
-        : [{
-            id: invitation.id,
-            email: invitation.email,
-            role: invitation.role,
-            expiresAt: invitation.expiresAt.toISOString(),
-            createdAt: invitation.createdAt.toISOString(),
-          }],
-    ),
+        : invitationRows.flatMap((invitation): OrganizationInvitationRecord[] =>
+            invitation.role === "owner"
+              ? []
+              : [{
+                  id: invitation.id,
+                  email: invitation.email,
+                  role: invitation.role,
+                  expiresAt: invitation.expiresAt.toISOString(),
+                  createdAt: invitation.createdAt.toISOString(),
+                }],
+          ),
     companies: companyRows.map(toCompanyRecord),
     contacts: contactRows.map((row) =>
       toContactRecord(row.contact, row.companyName),

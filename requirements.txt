@@ -37,6 +37,9 @@ AUTH AND STORAGE
   `NEXT_PUBLIC_APP_URL`; the Auth callback creates the tenant profile after a
   verified invitation session. Keep one organization per Auth user until an
   organization-switching model is designed.
+- Multi-instance deployments must share a stable server-only
+  `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` so rolling deployments can invoke the
+  same Server Actions. Local single-instance development may leave it empty.
 
 AI
 - Feature and domain code may depend on IAIProvider only, never ClaudeMCPProvider or an SDK directly.

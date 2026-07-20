@@ -428,7 +428,7 @@ async function markInvitationFailed(
         changes: { status: "failed" },
         metadata: { source: "supabase-auth-invitation" },
       });
-    });
+    }, { allowInactiveActor: true });
   } catch (cleanupError) {
     console.error("Invitation cleanup failed", {
       errorName: cleanupError instanceof Error ? cleanupError.name : "UnknownError",
@@ -895,7 +895,15 @@ export async function importCompaniesCsv(
   }
 
   try {
-    const parsed = parseCompaniesCsv(csvText);
+    let parsed: ReturnType<typeof parseCompaniesCsv>;
+    try {
+      parsed = parseCompaniesCsv(csvText);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "The CSV could not be parsed.",
+      };
+    }
     const importResult = await withLeadMutation(async (tx, context) => {
       let count = 0;
       const errors = [...parsed.errors];

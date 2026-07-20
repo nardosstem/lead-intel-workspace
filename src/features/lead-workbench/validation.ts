@@ -52,9 +52,9 @@ const optionalText = (max: number) =>
     z.string().trim().max(max).optional(),
   );
 
-const companyDataSchema = z.object({
+export const companyDataSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  website: optionalUrl,
+  website: optionalHttpsUrl,
   industry: optionalText(120),
   size: optionalText(80),
   location: optionalText(160),

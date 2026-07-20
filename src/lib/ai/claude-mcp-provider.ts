@@ -23,7 +23,7 @@ const responseMetadataSchema = z.object({
 });
 
 const textResponseSchema = responseMetadataSchema.extend({
-  text: z.string(),
+  text: z.string().trim().min(1),
 });
 
 const entityResponseSchema = responseMetadataSchema.extend({

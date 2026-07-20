@@ -45,4 +45,29 @@ describe("Firecrawl client", () => {
     expect(result.warning).toBeUndefined();
     expect(requestedOptions).toEqual({ formats: ["markdown"] });
   });
+
+  it("rejects private domains before invoking Firecrawl", async () => {
+    const result = await scrapeDomain("http://localhost:3000");
+
+    expect(result.markdown).toBe("");
+    expect(result.warning).toMatch(/unsafe|invalid/i);
+  });
+
+  it("rejects unsafe URLs even when the client wrapper is called directly", async () => {
+    let called = false;
+    const client = new FirecrawlClient({
+      apiKey: "firecrawl-test-key",
+      client: {
+        scrapeUrl: async () => {
+          called = true;
+          return { markdown: "should not be fetched" };
+        },
+      },
+    });
+
+    const result = await client.scrapeUrl("http://127.0.0.1:3000/admin");
+
+    expect(called).toBe(false);
+    expect(result.warning).toMatch(/unsafe|invalid/i);
+  });
 });

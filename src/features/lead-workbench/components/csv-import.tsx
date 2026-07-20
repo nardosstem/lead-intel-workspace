@@ -16,6 +16,11 @@ export function CsvImport({ onImported }: Readonly<{ onImported: () => void }>) 
   function chooseFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (file.size > 5_000_000) {
+      toast.error("CSV import is limited to 5 MB.");
+      event.target.value = "";
+      return;
+    }
     setFileName(file.name);
     startTransition(async () => {
       try {

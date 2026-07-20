@@ -3,7 +3,10 @@ import { z } from "zod";
 const publicEnvironmentSchema = z.object({
   supabaseUrl: z.url(),
   supabasePublishableKey: z.string().min(1),
-  appUrl: z.url().optional(),
+  appUrl: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.url().optional(),
+  ),
 });
 
 export type PublicEnvironment = z.infer<typeof publicEnvironmentSchema>;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NonRetriableError } from "inngest";
+import { z } from "zod";
 
 import { ApolloApiError, ApolloConfigurationError } from "@/lib/apollo";
 import { AIProviderError } from "@/lib/ai";
@@ -11,6 +12,7 @@ describe("lead ingestion workflow error policy", () => {
     expect(toWorkflowError(new ApolloConfigurationError())).toBeInstanceOf(NonRetriableError);
     expect(toWorkflowError(new ApolloApiError("forbidden", 403))).toBeInstanceOf(NonRetriableError);
     expect(toWorkflowError(new AIProviderError("Claude MCP is not configured.", "claude-mcp"))).toBeInstanceOf(NonRetriableError);
+    expect(toWorkflowError(new z.ZodError([]))).toBeInstanceOf(NonRetriableError);
   });
 
   it("keeps rate limits and server failures retryable", () => {

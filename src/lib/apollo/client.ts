@@ -2,6 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
+import { isPublicHostname } from "@/lib/domains";
+
 const APOLLO_BASE_URL = "https://api.apollo.io";
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_APOLLO_RESPONSE_BYTES = 2_000_000;
@@ -239,6 +241,16 @@ export class ApolloClient implements ApolloLeadSource {
 
   async searchDomain(domain: string, titles: string[]): Promise<ApolloPerson[]> {
     const normalizedDomain = normalizeDomain(domain);
+    if (!isPublicHostname(normalizedDomain)) {
+      throw new ApolloApiError("Apollo domain is invalid.", 400);
+    }
+    const normalizedTitles = titles
+      .map((title) => title.trim())
+      .filter((title) => title.length > 0 && title.length <= 120)
+      .slice(0, 10);
+    if (!normalizedTitles.length) {
+      throw new ApolloApiError("Apollo target titles are invalid.", 400);
+    }
     const response = await this.request(
       "/api/v1/mixed_people/api_search",
       {
@@ -246,7 +258,7 @@ export class ApolloClient implements ApolloLeadSource {
         // q_organization_domains for compatibility with older API accounts.
         q_organization_domains: [normalizedDomain],
         q_organization_domains_list: [normalizedDomain],
-        person_titles: titles,
+        person_titles: normalizedTitles,
         per_page: 5,
       },
     );
@@ -332,10 +344,18 @@ export async function ingestApolloLeads(
   const normalizedDomain = normalizeDomain(domain);
   const searchResults = await source.searchDomain(normalizedDomain, targetTitles);
   const searchedContactIds = searchResults.map((person) => person.id).slice(0, 5);
-  const enrichedResults = await source.enrichContacts(searchedContactIds);
+  const searchedIdSet = new Set(searchedContactIds);
+  const enrichedResults = (await source.enrichContacts(searchedContactIds)).filter((person) =>
+    searchedIdSet.has(person.id),
+  );
+  const seenContactIds = new Set<string>();
   const contacts = enrichedResults
     .map(toContactPayload)
-    .filter((contact): contact is ApolloContactPayload => contact !== null);
+    .filter((contact): contact is ApolloContactPayload => {
+      if (!contact || seenContactIds.has(contact.apolloId)) return false;
+      seenContactIds.add(contact.apolloId);
+      return true;
+    });
 
   return {
     domain: normalizedDomain,

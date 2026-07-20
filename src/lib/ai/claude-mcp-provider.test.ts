@@ -37,5 +37,12 @@ describe("ClaudeMCPProvider", () => {
     await expect(
       provider.summarizeText({ text: "context", context }),
     ).rejects.toBeInstanceOf(AIProviderError);
+
+    const emptyProvider = new ClaudeMCPProvider({
+      callTool: async () => ({ text: "   " }),
+    });
+    await expect(
+      emptyProvider.summarizeText({ text: "context", context }),
+    ).rejects.toBeInstanceOf(AIProviderError);
   });
 });

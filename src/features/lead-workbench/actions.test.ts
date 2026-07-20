@@ -23,6 +23,7 @@ vi.mock("@/inngest/client", () => ({
 vi.mock("./server/context", () => ({ requireLeadContext: contextMock }));
 
 import { triggerDomainIngestion } from "./actions";
+import { importCompaniesCsv } from "./server/actions";
 
 describe("triggerDomainIngestion", () => {
   beforeEach(() => {
@@ -59,6 +60,15 @@ describe("triggerDomainIngestion", () => {
     expect(sendMock).toHaveBeenCalledWith({
       name: "lead.ingest.requested",
       data: expect.objectContaining({ domain: "acme.com" }),
+    });
+  });
+
+  it("returns a useful parse error for malformed CSV before opening a database transaction", async () => {
+    const result = await importCompaniesCsv('name\n"Unterminated');
+
+    expect(result).toEqual({
+      ok: false,
+      error: "CSV contains an unterminated quoted field.",
     });
   });
 });

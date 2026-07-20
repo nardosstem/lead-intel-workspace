@@ -43,6 +43,10 @@ export function safeEnrichmentError(error: unknown): string {
 }
 
 export function toWorkflowError(error: unknown): unknown {
+  if (error instanceof z.ZodError) {
+    return new NonRetriableError("Apollo returned an invalid lead response.", { cause: error });
+  }
+
   if (error instanceof ApolloConfigurationError) {
     return new NonRetriableError("Apollo is not configured for lead ingestion.", { cause: error });
   }
@@ -95,9 +99,16 @@ async function initializeIngestion(
 ): Promise<string> {
   return withLeadMutationContext(context, async (tx) => {
     const actor = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, isActive: users.isActive })
       .from(users)
-      .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
+      .where(
+        and(
+          eq(users.id, context.userId),
+          eq(users.organizationId, context.organizationId),
+          eq(users.isActive, true),
+        ),
+      )
+      .for("update")
       .limit(1);
     if (!actor[0]) {
       throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
@@ -174,7 +185,7 @@ async function initializeIngestion(
       .onConflictDoNothing({ target: pipeline.companyId });
 
     return companyId;
-  });
+  }, { allowInactiveActor: true });
 }
 
 async function saveInitialData(
@@ -185,14 +196,16 @@ async function saveInitialData(
 ): Promise<InitialLeadData> {
   return withLeadMutationContext(context, async (tx) => {
     const actor = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, isActive: users.isActive })
       .from(users)
       .where(
         and(
           eq(users.id, context.userId),
           eq(users.organizationId, context.organizationId),
+          eq(users.isActive, true),
         ),
       )
+      .for("update")
       .limit(1);
     if (!actor[0]) {
       throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
@@ -372,7 +385,7 @@ async function saveInitialData(
       contactIds,
       primaryContact: batch.contacts[0] ?? null,
     };
-  });
+  }, { allowInactiveActor: true });
 }
 
 async function markEnrichmentFailed(
@@ -431,7 +444,7 @@ async function markEnrichmentFailed(
       },
       metadata: { source: "apollo-firecrawl-inngest", domain, runId },
     });
-  });
+  }, { allowInactiveActor: true });
 }
 
 export const ingestLead = inngest.createFunction(
@@ -480,7 +493,12 @@ export const ingestLead = inngest.createFunction(
       async () => {
         const provider = getAIProvider();
         const primaryContact = initialData.primaryContact
-          ? JSON.stringify(initialData.primaryContact)
+          ? JSON.stringify({
+              name: initialData.primaryContact.name,
+              title: initialData.primaryContact.title,
+              linkedin: initialData.primaryContact.linkedin,
+              notes: initialData.primaryContact.notes,
+            })
           : "No primary contact was enriched.";
         const scrapedMarkdown = scrape.markdown || "No website Markdown was available.";
 

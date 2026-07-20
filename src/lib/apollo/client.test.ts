@@ -118,6 +118,36 @@ describe("Apollo client", () => {
     expect(result.contacts[0]?.linkedin).toBeNull();
   });
 
+  it("ignores enrichment records that were not requested", async () => {
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async (input) =>
+        jsonResponse(
+          String(input).includes("api_search")
+            ? { people: [{ id: "person-1", name: "Person 1" }] }
+            : {
+                matches: [
+                  { id: "unrequested", name: "Unexpected Person" },
+                  { id: "person-1", name: "Person 1" },
+                ],
+              },
+        ),
+    });
+
+    const result = await ingestApolloLeads("acme.com", ["CEO"], client);
+    expect(result.contacts.map((contact) => contact.apolloId)).toEqual(["person-1"]);
+  });
+
+  it("rejects private domains before making a provider request", async () => {
+    const fetchMock = async () => jsonResponse({ people: [] });
+    const client = new ApolloClient({ apiKey: "apollo-test-key", fetchImpl: fetchMock });
+
+    await expect(client.searchDomain("http://localhost:3000", ["CEO"])).rejects.toMatchObject({
+      status: 400,
+      message: "Apollo domain is invalid.",
+    });
+  });
+
   it("rejects oversized provider responses before parsing them", async () => {
     const client = new ApolloClient({
       apiKey: "apollo-test-key",

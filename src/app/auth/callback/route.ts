@@ -22,6 +22,10 @@ export async function GET(request: NextRequest) {
           try {
             await acceptPendingOrganizationInvitation({ userId: user.id, email: user.email });
           } catch (invitationError) {
+            // Do not leave a partially authenticated session active when an
+            // invitation cannot be resolved. The user can sign in again after
+            // an administrator fixes the pending invitation state.
+            await supabase.auth.signOut().catch(() => undefined);
             const loginUrl = new URL("/login", request.url);
             loginUrl.searchParams.set("next", nextPath);
             loginUrl.searchParams.set(
