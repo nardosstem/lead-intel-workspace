@@ -29,9 +29,9 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 
-import { companyStatuses } from "../validation";
+import { companyStatuses, isInvitationRole, isOrganizationRole } from "../validation";
 import { triggerDomainIngestion } from "../actions";
-import { pipelineStages, type PipelineStage } from "@/lib/db/pipeline";
+import { isPipelineStage, pipelineStages, type PipelineStage } from "@/lib/db/pipeline";
 import {
   deleteCompany,
   deleteContact,
@@ -369,7 +369,7 @@ function PipelineView({
                           {item.nextFollowUpAt ? ` · ${shortDate(item.nextFollowUpAt)}` : ""}
                         </p>
                       </button>
-                      <Select value={item.stage} onValueChange={(value) => value && onStageChange(item, value as PipelineStage)}>
+                      <Select value={item.stage} onValueChange={(value) => isPipelineStage(value) && onStageChange(item, value)}>
                         <SelectTrigger className="h-7 w-full text-xs">
                           <SelectValue />
                         </SelectTrigger>
@@ -613,7 +613,7 @@ function SettingsView({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Select
                   value={member.role}
-                  onValueChange={(value) => changeMemberRole(member.id, value as OrganizationMemberRecord["role"])}
+                  onValueChange={(value) => isOrganizationRole(value) && changeMemberRole(member.id, value)}
                   disabled={settings.currentUserRole === "member" || !member.isActive || pendingMemberId === member.id || (member.role === "owner" && settings.currentUserRole !== "owner")}
                 >
                   <SelectTrigger className="w-full sm:w-32" aria-label={`Role for ${member.email}`}>
@@ -663,7 +663,7 @@ function SettingsView({
             </label>
             <label className="space-y-1.5 text-sm">
               <span className="font-medium">Role</span>
-              <Select value={inviteRole} onValueChange={(value) => value && setInviteRole(value as "admin" | "member")} disabled={settings.currentUserRole === "member" || isInviting}>
+              <Select value={inviteRole} onValueChange={(value) => isInvitationRole(value) && setInviteRole(value)} disabled={settings.currentUserRole === "member" || isInviting}>
                 <SelectTrigger className="w-full sm:w-32" aria-label="Invitation role"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="member">Member</SelectItem>
@@ -707,7 +707,7 @@ function SettingsView({
           {error ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
           <label className="space-y-1.5 text-sm">
             <span className="font-medium">Default pipeline stage</span>
-            <Select value={defaultStage} onValueChange={(value) => value && setDefaultStage(value as PipelineStage)} disabled={settings.currentUserRole === "member"}>
+            <Select value={defaultStage} onValueChange={(value) => isPipelineStage(value) && setDefaultStage(value)} disabled={settings.currentUserRole === "member"}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>{pipelineStages.map((stage) => <SelectItem key={stage} value={stage}>{stageLabels[stage]}</SelectItem>)}</SelectContent>
             </Select>
@@ -971,12 +971,12 @@ export function LeadWorkbench({
       setData((current) => ({
         ...current,
         pipeline: current.pipeline.map((row) =>
-          row.id === item.id ? { ...row, stage: result.data.stage as PipelineStage, nextFollowUpAt: result.data.nextFollowUpAt } : row,
+          row.id === item.id ? { ...row, stage: result.data.stage, nextFollowUpAt: result.data.nextFollowUpAt } : row,
         ),
       }));
       setSelectedPipeline((current) =>
         current?.id === item.id
-          ? { ...current, stage: result.data.stage as PipelineStage, nextFollowUpAt: result.data.nextFollowUpAt }
+          ? { ...current, stage: result.data.stage, nextFollowUpAt: result.data.nextFollowUpAt }
           : current,
       );
       toast.success(`Moved to ${stageLabels[stage]}`);
@@ -1102,7 +1102,7 @@ export function LeadWorkbench({
       </div>
 
       <nav className="flex gap-1 overflow-x-auto border-b" aria-label="Lead workbench views">
-        {(["dashboard", "pipeline", "companies", "contacts", "audit", "settings"] as WorkbenchView[]).map((item) => (
+        {(["dashboard", "pipeline", "companies", "contacts", "audit", "settings"] satisfies WorkbenchView[]).map((item) => (
           <button
             key={item}
             type="button"
@@ -1354,7 +1354,7 @@ export function LeadWorkbench({
                 </div>
                 <label className="space-y-1.5 text-sm">
                   <span className="font-medium">Stage</span>
-                  <Select value={selectedPipeline.stage} onValueChange={(value) => value && changePipelineStage(selectedPipeline, value as PipelineStage)}>
+                  <Select value={selectedPipeline.stage} onValueChange={(value) => isPipelineStage(value) && changePipelineStage(selectedPipeline, value)}>
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>{pipelineStages.map((stage) => <SelectItem key={stage} value={stage}>{stageLabels[stage]}</SelectItem>)}</SelectContent>
                   </Select>

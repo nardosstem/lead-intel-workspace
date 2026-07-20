@@ -42,6 +42,7 @@ import {
   normalizeCompanyDomain,
   workspaceSettingsSchema,
 } from "../validation";
+import type { PipelineStage } from "@/lib/db/pipeline";
 import type {
   ActionResult,
   CompanyRecord,
@@ -807,7 +808,7 @@ export async function deleteContact(id: string): Promise<ActionResult<{ id: stri
 
 export async function updatePipeline(
   input: unknown,
-): Promise<ActionResult<{ id: string; stage: string; nextFollowUpAt: string | null }>> {
+): Promise<ActionResult<{ id: string; stage: PipelineStage; nextFollowUpAt: string | null }>> {
   const parsed = updatePipelineSchema.safeParse(input);
   if (!parsed.success) {
     return validationFailure(parsed.error);

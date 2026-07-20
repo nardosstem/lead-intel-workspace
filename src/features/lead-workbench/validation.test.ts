@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   contactInputSchema,
   inviteMemberSchema,
+  isInvitationRole,
+  isOrganizationRole,
   organizationRoles,
   researchCompanySchema,
   scoreIcpSchema,
@@ -85,6 +87,13 @@ describe("lead input URL validation", () => {
 });
 
 describe("organization governance validation", () => {
+  it("narrows role values from interactive controls", () => {
+    expect(isOrganizationRole("owner")).toBe(true);
+    expect(isOrganizationRole("unknown")).toBe(false);
+    expect(isInvitationRole("admin")).toBe(true);
+    expect(isInvitationRole("owner")).toBe(false);
+  });
+
   it("keeps the role vocabulary explicit and validates role updates", () => {
     expect(organizationRoles).toEqual(["owner", "admin", "member"]);
     expect(updateMemberRoleSchema.safeParse({

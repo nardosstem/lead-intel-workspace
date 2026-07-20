@@ -26,12 +26,16 @@ function companyData(company: CompanyRecord) {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function isActionResponse(
   value: unknown,
 ): value is
   | { ok: true; data: Record<string, unknown> }
   | { ok: false; error: string } {
-  if (typeof value !== "object" || value === null || !("ok" in value)) {
+  if (!isRecord(value) || !("ok" in value)) {
     return false;
   }
 
@@ -42,8 +46,7 @@ function isActionResponse(
   return (
     value.ok === true &&
     "data" in value &&
-    typeof value.data === "object" &&
-    value.data !== null
+    isRecord(value.data)
   );
 }
 
@@ -79,7 +82,7 @@ export function AiActionButtons({
           return;
         }
 
-        const data = response.data as Record<string, unknown>;
+        const data = response.data;
         setResultTitle(action);
         setResultText(
           typeof data.draft === "string"

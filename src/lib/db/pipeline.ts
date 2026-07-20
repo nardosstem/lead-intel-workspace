@@ -11,3 +11,7 @@ export const pipelineStages = [
 ] as const;
 
 export type PipelineStage = (typeof pipelineStages)[number];
+
+export function isPipelineStage(value: unknown): value is PipelineStage {
+  return typeof value === "string" && pipelineStages.some((stage) => stage === value);
+}

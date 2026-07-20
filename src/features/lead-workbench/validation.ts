@@ -6,6 +6,14 @@ import { isPublicHostname } from "@/lib/domains";
 export const organizationRoles = ["owner", "admin", "member"] as const;
 export type OrganizationRole = (typeof organizationRoles)[number];
 
+export function isOrganizationRole(value: unknown): value is OrganizationRole {
+  return typeof value === "string" && organizationRoles.some((role) => role === value);
+}
+
+export function isInvitationRole(value: unknown): value is "admin" | "member" {
+  return value === "admin" || value === "member";
+}
+
 export const companyStatuses = ["prospect", "customer", "inactive"] as const;
 export type CompanyStatus = (typeof companyStatuses)[number];
 
