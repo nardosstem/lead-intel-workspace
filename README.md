@@ -347,8 +347,9 @@ The repository contains deployable code, but autonomous production use requires
 these provider/account checks to be completed in staging or the hosting
 environment:
 
-- Apollo must provide a key with access to `mixed_people/api_search`; the
-  current free-plan endpoint can reject ingestion before any contacts exist.
+- Apollo must provide a master key with access to `mixed_people/api_search`;
+  the current free-plan endpoint can reject ingestion before any contacts
+  exist, while bulk enrichment may consume credits per person.
 - Firecrawl must have a production key and an allowed website-scrape budget.
 - Claude MCP must be deployed behind an HTTPS endpoint, with
   `CLAUDE_MCP_AUTH_TOKEN` set when the bridge requires bearer authentication.
