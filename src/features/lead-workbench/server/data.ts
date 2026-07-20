@@ -8,6 +8,7 @@ import {
   contacts,
   getDatabase,
   organizations,
+  users,
   pipeline,
 } from "@/lib/db";
 
@@ -91,15 +92,21 @@ export function toPipelineRecord(row: {
   };
 }
 
-function toAuditRecord(log: typeof auditLogs.$inferSelect): AuditRecord {
+function toAuditRecord(row: {
+  log: typeof auditLogs.$inferSelect;
+  actorName: string | null;
+  actorEmail: string | null;
+}): AuditRecord {
   return {
-    id: log.id,
-    action: log.action,
-    entityType: log.entityType,
-    entityId: log.entityId,
-    actorUserId: log.actorUserId,
-    changes: log.changes,
-    createdAt: log.createdAt.toISOString(),
+    id: row.log.id,
+    action: row.log.action,
+    entityType: row.log.entityType,
+    entityId: row.log.entityId,
+    actorUserId: row.log.actorUserId,
+    actorName: row.actorName,
+    actorEmail: row.actorEmail,
+    changes: row.log.changes,
+    createdAt: row.log.createdAt.toISOString(),
   };
 }
 
@@ -165,8 +172,13 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
       .where(eq(pipeline.organizationId, context.organizationId))
       .orderBy(desc(pipeline.updatedAt)),
     db
-      .select()
+      .select({
+        log: auditLogs,
+        actorName: users.fullName,
+        actorEmail: users.email,
+      })
       .from(auditLogs)
+      .leftJoin(users, eq(auditLogs.actorUserId, users.id))
       .where(eq(auditLogs.organizationId, context.organizationId))
       .orderBy(desc(auditLogs.createdAt))
       .limit(100),

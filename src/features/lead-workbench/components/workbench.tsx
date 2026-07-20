@@ -388,6 +388,16 @@ function PipelineView({
 }
 
 function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredLogs = normalizedQuery
+    ? logs.filter((log) =>
+        [log.action, log.entityType, log.entityId, log.actorName, log.actorEmail]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(normalizedQuery)),
+      )
+    : logs;
+
   return (
     <Card>
       <CardHeader>
@@ -397,9 +407,16 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
         </p>
       </CardHeader>
       <CardContent>
-        {logs.length ? (
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search actions, entities, or actors…"
+          aria-label="Search audit history"
+          className="mb-4"
+        />
+        {filteredLogs.length ? (
           <div className="divide-y rounded-lg border">
-            {logs.map((log) => (
+            {filteredLogs.map((log) => (
               <details key={log.id} className="group p-4">
                 <summary className="flex cursor-pointer list-none items-center gap-3 text-sm">
                   <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
@@ -407,6 +424,9 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
                   </span>
                   <span className="font-medium">{log.entityType}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">{log.entityId}</span>
+                  <span className="hidden max-w-40 truncate text-xs text-muted-foreground sm:inline" title={log.actorEmail ?? log.actorUserId ?? undefined}>
+                    {log.actorName ?? log.actorEmail ?? "System"}
+                  </span>
                   <time className="text-xs text-muted-foreground" dateTime={log.createdAt}>
                     {fullDate(log.createdAt)}
                   </time>
@@ -419,7 +439,7 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
           </div>
         ) : (
           <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            Mutations will appear here once your organization starts working leads.
+            {logs.length ? "No audit entries match this search." : "Mutations will appear here once your organization starts working leads."}
           </div>
         )}
       </CardContent>

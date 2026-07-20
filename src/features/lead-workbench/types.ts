@@ -59,6 +59,8 @@ export type AuditRecord = {
   entityType: string;
   entityId: string;
   actorUserId: string | null;
+  actorName: string | null;
+  actorEmail: string | null;
   changes: Record<string, unknown>;
   createdAt: string;
 };
