@@ -65,7 +65,7 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:seed:leads` | Insert a deterministic demo workspace with 10 companies, 20 contacts, and pipeline rows |
 | `npm run db:verify-boundaries` | Verify tenant foreign keys, cascades, and transactional cleanup against `DATABASE_URL` |
 | `npm run e2e` | Run Playwright browser smoke/accessibility coverage (Chromium required) |
-| `npm test` | Run Apollo, Firecrawl, and Inngest contract tests |
+| `npm test` | Run provider, AI, domain, action, validation, and Inngest contract tests |
 
 GitHub Actions runs `npm test`, `npm run check`, `npm run build`, and the
 Chromium browser suite for pushes to `main` and pull requests. Provider-backed
@@ -298,6 +298,23 @@ app serves functions at `/api/inngest`.
 The current Inngest SDK publishes the Next.js adapter as `inngest/next`; the
 separate `@inngest/next` package requested by older setup guides is not
 published, so it is intentionally not added as a dead dependency.
+
+### External production gates
+
+The repository is ready for deployment, but these provider/account checks must
+be completed in staging or the hosting environment:
+
+- Apollo must provide a key with access to `mixed_people/api_search`; the
+  current free-plan endpoint can reject ingestion before any contacts exist.
+- Firecrawl must have a production key and an allowed website-scrape budget.
+- Claude MCP must be deployed behind an HTTPS endpoint, with
+  `CLAUDE_MCP_AUTH_TOKEN` set when the bridge requires bearer authentication.
+- Inngest must register the deployed `/api/inngest` URL and sign webhook
+  requests with `INNGEST_SIGNING_KEY`; unsigned requests are rejected.
+- Supabase Auth must allow the deployed `/auth/callback` and reset-password
+  redirect URLs, and migrations/boundary checks must run against staging.
+- Run an authenticated two-organization CRUD/authorization test and one real
+  Apollo → Firecrawl → MCP ingestion before enabling provider-consuming CI.
 
 ## Adding a feature
 
