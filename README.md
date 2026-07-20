@@ -79,9 +79,12 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run e2e` | Run Playwright browser smoke/accessibility coverage (Chromium required) |
 | `npm test` | Run provider, AI, domain, action, validation, and Inngest contract tests |
 | `npm run test:coverage` | Run the same suite with a V8 coverage report |
+| `npm run test:integration` | Run authenticated Server Action CRUD and tenant-isolation tests against a disposable PostgreSQL database |
 
 GitHub Actions runs the V8 coverage suite, `npm run check`, `npm run build`, and the
-Chromium browser suite for pushes to `main` and pull requests. Provider-backed
+Chromium browser suite for pushes to `main` and pull requests. It also runs the
+authenticated Server Action integration suite against its ephemeral PostgreSQL
+service. Provider-backed
 and authenticated staging tests remain a separate deployment gate because CI
 does not receive production credentials.
 CSV imports are capped at 5 MB and 500 rows. Valid rows commit independently
@@ -102,6 +105,11 @@ The unit coverage report has a conservative repository-wide baseline (35% lines,
 provider adapters, and workflow policies are covered locally, while
 database-backed Server Actions and authenticated provider flows require the
 staging gates below.
+
+`npm run test:integration` is intentionally excluded from the default unit
+suite. It requires `DATABASE_URL` for an ephemeral PostgreSQL database plus
+`LEAD_INTEL_INTEGRATION_TEST=1`; the CI workflow supplies both against its
+disposable service. Do not point it at a production database.
 
 ## Architecture
 

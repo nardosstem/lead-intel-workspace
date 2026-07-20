@@ -14,17 +14,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
-    exclude: ["**/*.integration.test.ts"],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json", "html"],
-      thresholds: {
-        statements: 35,
-        branches: 30,
-        functions: 40,
-        lines: 35,
-      },
-    },
+    include: ["src/**/*.integration.test.ts"],
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
 });
