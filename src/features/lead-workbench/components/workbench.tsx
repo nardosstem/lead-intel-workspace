@@ -51,13 +51,20 @@ import type {
   OrganizationInvitationRecord,
   PipelineRecord,
   WorkbenchSnapshot,
+  WorkbenchQuery,
   WorkspaceSettings,
 } from "../types";
+import { defaultWorkbenchQuery } from "../types";
 import { CompanyForm } from "./company-form";
 import { ContactForm } from "./contact-form";
 import { CsvImport } from "./csv-import";
 import { AiActionButtons } from "./ai-actions";
-import { LeadTable, type LeadTableColumn, type LeadTableFilter } from "./lead-table";
+import {
+  LeadTable,
+  type LeadTableColumn,
+  type LeadTableFilter,
+  type LeadTableQuery,
+} from "./lead-table";
 import { QuickAddDomain } from "./quick-add-domain";
 
 export type WorkbenchView =
@@ -95,6 +102,8 @@ const statusLabels: Record<string, string> = {
   customer: "Customer",
   inactive: "Inactive",
 };
+
+const DUE_PIPELINE_DISPLAY_LIMIT = 20;
 
 function shortDate(value: string): string {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(
@@ -202,16 +211,11 @@ function DashboardView({
   data: WorkbenchSnapshot;
   onPipelineSelect: (item: PipelineRecord) => void;
 }>) {
-  const recent = data.companies.slice(0, 5);
-  const due = data.pipeline.filter(
-    (item) => item.stage !== "won" && item.stage !== "lost" && isDue(item.nextFollowUpAt),
-  );
-  const activePipeline = data.pipeline.filter(
-    (item) => item.stage !== "won" && item.stage !== "lost",
-  );
+  const recent = data.metrics.recentlyAdded;
+  const due = data.metrics.duePipeline.filter((item) => isDue(item.nextFollowUpAt));
   const stageCounts = pipelineStages.map((stage) => ({
     stage,
-    count: data.pipeline.filter((item) => item.stage === stage).length,
+    count: data.metrics.stageCounts[stage],
   }));
 
   return (
@@ -219,14 +223,14 @@ function DashboardView({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           label="Total leads"
-          value={data.companies.length + data.contacts.length}
-          hint={`${data.companies.length} companies · ${data.contacts.length} contacts`}
+          value={data.metrics.totalCompanies + data.metrics.totalContacts}
+          hint={`${data.metrics.totalCompanies} companies · ${data.metrics.totalContacts} contacts`}
           icon={Target}
         />
         <KpiCard
           label="Active pipeline"
-          value={activePipeline.length}
-          hint={`${data.pipeline.length} tracked records total`}
+          value={data.metrics.activePipeline}
+          hint={`${data.metrics.totalPipeline} tracked records total`}
           icon={CircleDollarSign}
           tone="success"
         />
@@ -238,8 +242,12 @@ function DashboardView({
         />
         <KpiCard
           label="Follow-ups due"
-          value={due.length}
-          hint={due.length ? "Needs attention today" : "You are all caught up"}
+          value={data.metrics.followUpsDue}
+          hint={data.metrics.followUpsDue > DUE_PIPELINE_DISPLAY_LIMIT
+            ? `Needs attention today · showing first ${DUE_PIPELINE_DISPLAY_LIMIT}`
+            : data.metrics.followUpsDue
+              ? "Needs attention today"
+              : "You are all caught up"}
           icon={CalendarClock}
           tone={due.length ? "warning" : "default"}
         />
@@ -269,7 +277,7 @@ function DashboardView({
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full bg-primary transition-all"
-                    style={{ width: `${data.pipeline.length ? Math.max((count / data.pipeline.length) * 100, count ? 4 : 0) : 0}%` }}
+                    style={{ width: `${data.metrics.totalPipeline ? Math.max((count / data.metrics.totalPipeline) * 100, count ? 4 : 0) : 0}%` }}
                   />
                 </div>
                 <span className="w-6 text-right text-sm font-medium">{count}</span>
@@ -342,20 +350,25 @@ function PipelineView({
   data,
   onSelect,
   onStageChange,
+  onPageChange,
+  isLoading,
 }: Readonly<{
   data: WorkbenchSnapshot;
   onSelect: (item: PipelineRecord) => void;
   onStageChange: (item: PipelineRecord, stage: PipelineStage) => void;
+  onPageChange: (page: number) => void;
+  isLoading: boolean;
 }>) {
   return (
     <div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-3">
       {pipelineStages.map((stage) => {
         const items = data.pipeline.filter((item) => item.stage === stage);
+        const totalForStage = data.metrics.stageCounts[stage];
         return (
           <section key={stage} className="w-72 shrink-0 rounded-xl bg-muted/50 p-3">
             <div className="mb-3 flex items-center justify-between gap-2">
               <StagePill stage={stage} />
-              <span className="text-xs text-muted-foreground">{items.length}</span>
+              <span className="text-xs text-muted-foreground">{totalForStage}</span>
             </div>
             <div className="space-y-2">
               {items.length ? (
@@ -384,6 +397,10 @@ function PipelineView({
                     </CardContent>
                   </Card>
                 ))
+              ) : totalForStage > 0 ? (
+                <div className="rounded-lg border border-dashed px-3 py-6 text-center text-xs text-muted-foreground">
+                  Leads on another page
+                </div>
               ) : (
                 <div className="rounded-lg border border-dashed px-3 py-6 text-center text-xs text-muted-foreground">No leads here</div>
               )}
@@ -391,6 +408,31 @@ function PipelineView({
           </section>
         );
       })}
+      {data.pagination.pipeline.pageCount > 1 ? (
+        <div className="flex shrink-0 items-center gap-2 self-end pb-3 text-xs text-muted-foreground">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(data.pagination.pipeline.page - 1)}
+            disabled={isLoading || data.pagination.pipeline.page <= 1}
+          >
+            Previous
+          </Button>
+          <span aria-live="polite">
+            Page {data.pagination.pipeline.page} of {data.pagination.pipeline.pageCount}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(data.pagination.pipeline.page + 1)}
+            disabled={isLoading || data.pagination.pipeline.page >= data.pagination.pipeline.pageCount}
+          >
+            Next
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -764,6 +806,7 @@ export function LeadWorkbench({
   initialView?: WorkbenchView;
 }>) {
   const [data, setData] = useState(initialData);
+  const [listQuery, setListQuery] = useState<WorkbenchQuery>(defaultWorkbenchQuery);
   const [view, setView] = useState<WorkbenchView>(initialView);
   const [isRefreshing, startRefresh] = useTransition();
   const [companyDialog, setCompanyDialog] = useState<"create" | "edit" | null>(null);
@@ -776,15 +819,20 @@ export function LeadWorkbench({
   const [isPollingIngestion, setIsPollingIngestion] = useState(false);
   const router = useRouter();
 
-  const hasActiveEnrichment = data.companies.some(
-    (company) => company.enrichmentStatus === "processing",
-  );
+  const hasActiveEnrichment = data.metrics.processingCompanies > 0;
+  const companyOptions = useMemo(() => {
+    const options = new Map(data.companyOptions.map((company) => [company.id, company]));
+    for (const company of data.relatedCompanies) {
+      options.set(company.id, { id: company.id, name: company.name });
+    }
+    return [...options.values()];
+  }, [data.companyOptions, data.relatedCompanies]);
 
   useEffect(() => {
     if (!hasActiveEnrichment) return;
 
     const refreshTimer = window.setInterval(() => {
-      void getLeads()
+      void getLeads(listQuery)
         .then(setData)
         .catch(() => {
           // The foreground workspace remains usable with its last known data;
@@ -793,7 +841,7 @@ export function LeadWorkbench({
     }, 5_000);
 
     return () => window.clearInterval(refreshTimer);
-  }, [hasActiveEnrichment]);
+  }, [hasActiveEnrichment, listQuery]);
 
   useEffect(() => {
     if (!isPollingIngestion) return;
@@ -801,7 +849,7 @@ export function LeadWorkbench({
     let attempts = 0;
     const poll = () => {
       attempts += 1;
-      void getLeads()
+      void getLeads(listQuery)
         .then(setData)
         .catch(() => undefined)
         .finally(() => {
@@ -812,7 +860,7 @@ export function LeadWorkbench({
     poll();
     const timer = window.setInterval(poll, 2_000);
     return () => window.clearInterval(timer);
-  }, [isPollingIngestion]);
+  }, [isPollingIngestion, listQuery]);
 
   const companyColumns = useMemo<LeadTableColumn<CompanyRecord>[]>(
     () => [
@@ -915,19 +963,53 @@ export function LeadWorkbench({
       key: "company",
       label: "Company",
       value: (row) => row.companyId,
-      options: data.companies.map((company) => ({ label: company.name, value: company.id })),
+      options: companyOptions.map((company) => ({ label: company.name, value: company.id })),
     },
   ];
 
-  function refresh() {
+  function refresh(query = listQuery) {
+    setListQuery(query);
     startRefresh(async () => {
       try {
-        const next = await getLeads();
+        const next = await getLeads(query);
         setData(next);
       } catch {
         toast.error("Could not refresh the workspace. Try again.");
       }
     });
+  }
+
+  function loadListQuery(query: WorkbenchQuery) {
+    setListQuery(query);
+    startRefresh(async () => {
+      try {
+        setData(await getLeads(query));
+      } catch {
+        toast.error("Could not load that page. Try again.");
+      }
+    });
+  }
+
+  function changeCompanyQuery(tableQuery: LeadTableQuery) {
+    loadListQuery({
+      ...listQuery,
+      companiesPage: tableQuery.page,
+      companySearch: tableQuery.query,
+      companyStatus: tableQuery.filters.status || undefined,
+    });
+  }
+
+  function changeContactQuery(tableQuery: LeadTableQuery) {
+    loadListQuery({
+      ...listQuery,
+      contactsPage: tableQuery.page,
+      contactSearch: tableQuery.query,
+      contactCompanyId: tableQuery.filters.company || undefined,
+    });
+  }
+
+  function changePipelinePage(page: number) {
+    loadListQuery({ ...listQuery, pipelinePage: page });
   }
 
   function changeView(nextView: WorkbenchView) {
@@ -980,6 +1062,7 @@ export function LeadWorkbench({
           : current,
       );
       toast.success(`Moved to ${stageLabels[stage]}`);
+      refresh();
     });
   }
 
@@ -1008,6 +1091,7 @@ export function LeadWorkbench({
           : current,
       );
       toast.success(value ? "Follow-up scheduled" : "Follow-up cleared");
+      refresh();
     });
   }
 
@@ -1081,7 +1165,7 @@ export function LeadWorkbench({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={isRefreshing}>
+          <Button type="button" variant="outline" size="sm" onClick={() => refresh()} disabled={isRefreshing}>
             <RefreshCw className={isRefreshing ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
             Refresh
           </Button>
@@ -1118,7 +1202,15 @@ export function LeadWorkbench({
       </nav>
 
       {view === "dashboard" && <DashboardView data={data} onPipelineSelect={setSelectedPipeline} />}
-      {view === "pipeline" && <PipelineView data={data} onSelect={setSelectedPipeline} onStageChange={changePipelineStage} />}
+      {view === "pipeline" && (
+        <PipelineView
+          data={data}
+          onSelect={setSelectedPipeline}
+          onStageChange={changePipelineStage}
+          onPageChange={changePipelinePage}
+          isLoading={isRefreshing}
+        />
+      )}
       {view === "companies" && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -1131,7 +1223,17 @@ export function LeadWorkbench({
             </Button>
           </CardHeader>
           <CardContent>
-            <LeadTable rows={data.companies} columns={companyColumns} filters={companyFilters} searchPlaceholder="Search companies…" onSelect={setSelectedCompany} emptyMessage="No companies match those filters." />
+            <LeadTable
+              rows={data.companies}
+              columns={companyColumns}
+              filters={companyFilters}
+              searchPlaceholder="Search companies…"
+              onSelect={setSelectedCompany}
+              pagination={data.pagination.companies}
+              onQueryChange={changeCompanyQuery}
+              isLoading={isRefreshing}
+              emptyMessage="No companies match those filters."
+            />
           </CardContent>
         </Card>
       )}
@@ -1142,12 +1244,22 @@ export function LeadWorkbench({
               <CardTitle className="text-base">Contact directory</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">Search people and filter by company.</p>
             </div>
-            <Button type="button" size="sm" onClick={() => setContactDialog("create")} disabled={!data.companies.length}>
+            <Button type="button" size="sm" onClick={() => setContactDialog("create")} disabled={!data.metrics.totalCompanies}>
               <Plus className="size-4" aria-hidden="true" /> Add contact
             </Button>
           </CardHeader>
           <CardContent>
-            <LeadTable rows={data.contacts} columns={contactColumns} filters={contactFilters} searchPlaceholder="Search contacts…" onSelect={setSelectedContact} emptyMessage="No contacts match those filters." />
+            <LeadTable
+              rows={data.contacts}
+              columns={contactColumns}
+              filters={contactFilters}
+              searchPlaceholder="Search contacts…"
+              onSelect={setSelectedContact}
+              pagination={data.pagination.contacts}
+              onQueryChange={changeContactQuery}
+              isLoading={isRefreshing}
+              emptyMessage="No contacts match those filters."
+            />
           </CardContent>
         </Card>
       )}
@@ -1198,7 +1310,7 @@ export function LeadWorkbench({
             <DialogDescription>Capture the person and context that make the next touch relevant.</DialogDescription>
           </DialogHeader>
           <ContactForm
-            companies={data.companies}
+            companies={companyOptions}
             initial={contactDialog === "edit" ? editingContact ?? undefined : undefined}
             onSaved={updateContactInState}
             onCancel={() => setContactDialog(null)}
@@ -1313,9 +1425,11 @@ export function LeadWorkbench({
                   <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-muted-foreground">{selectedContact.outreachDraft}</pre>
                 </details>
               ) : null}
-              {data.companies.find((company) => company.id === selectedContact.companyId) && (
+              {(data.relatedCompanies.find((company) => company.id === selectedContact.companyId) ??
+                data.companies.find((company) => company.id === selectedContact.companyId)) && (
                 <AiActionButtons
-                  company={data.companies.find((company) => company.id === selectedContact.companyId)!}
+                  company={data.relatedCompanies.find((company) => company.id === selectedContact.companyId) ??
+                    data.companies.find((company) => company.id === selectedContact.companyId)!}
                   contact={selectedContact}
                   onCompleted={refresh}
                 />

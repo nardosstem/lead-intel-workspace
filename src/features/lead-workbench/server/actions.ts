@@ -40,6 +40,7 @@ import {
   updateMemberStatusSchema,
   inviteMemberSchema,
   normalizeCompanyDomain,
+  workbenchQuerySchema,
   workspaceSettingsSchema,
 } from "../validation";
 import type { PipelineStage } from "@/lib/db/pipeline";
@@ -128,8 +129,12 @@ function actionFailure(error: unknown): ActionResult<never> {
   return { ok: false, error: "The lead operation could not be completed." };
 }
 
-export async function getLeads(): Promise<WorkbenchSnapshot> {
-  return getWorkbenchSnapshot();
+export async function getLeads(input?: unknown): Promise<WorkbenchSnapshot> {
+  const parsed = workbenchQuerySchema.safeParse(input ?? {});
+  if (!parsed.success) {
+    throw new Error("Invalid workbench query.");
+  }
+  return getWorkbenchSnapshot(parsed.data);
 }
 
 export async function updateWorkspaceSettings(

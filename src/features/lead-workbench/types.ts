@@ -1,5 +1,32 @@
 import type { PipelineStage } from "@/lib/db/pipeline";
 
+export type WorkbenchPageInfo = Readonly<{
+  page: number;
+  pageSize: number;
+  total: number;
+  pageCount: number;
+}>;
+
+export type WorkbenchQuery = Readonly<{
+  companiesPage: number;
+  contactsPage: number;
+  pipelinePage: number;
+  pageSize: number;
+  companySearch: string;
+  companyStatus?: string;
+  contactSearch: string;
+  contactCompanyId?: string;
+}>;
+
+export const defaultWorkbenchQuery: WorkbenchQuery = {
+  companiesPage: 1,
+  contactsPage: 1,
+  pipelinePage: 1,
+  pageSize: 50,
+  companySearch: "",
+  contactSearch: "",
+};
+
 export type CompanyRecord = {
   id: string;
   name: string;
@@ -84,14 +111,39 @@ export type OrganizationInvitationRecord = {
   createdAt: string;
 };
 
+export type CompanyOption = Readonly<{
+  id: string;
+  name: string;
+}>;
+
+export type WorkbenchMetrics = Readonly<{
+  totalCompanies: number;
+  totalContacts: number;
+  totalPipeline: number;
+  activePipeline: number;
+  followUpsDue: number;
+  processingCompanies: number;
+  stageCounts: Readonly<Record<PipelineStage, number>>;
+  recentlyAdded: CompanyRecord[];
+  duePipeline: PipelineRecord[];
+}>;
+
 export type WorkbenchSnapshot = {
   settings: WorkspaceSettings;
   members: OrganizationMemberRecord[];
   pendingInvitations: OrganizationInvitationRecord[];
   companies: CompanyRecord[];
+  relatedCompanies: CompanyRecord[];
   contacts: ContactRecord[];
   pipeline: PipelineRecord[];
   auditLogs: AuditRecord[];
+  companyOptions: CompanyOption[];
+  metrics: WorkbenchMetrics;
+  pagination: Readonly<{
+    companies: WorkbenchPageInfo;
+    contacts: WorkbenchPageInfo;
+    pipeline: WorkbenchPageInfo;
+  }>;
 };
 
 export type WorkspaceSettings = {
@@ -121,7 +173,34 @@ export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
   members: [],
   pendingInvitations: [],
   companies: [],
+  relatedCompanies: [],
   contacts: [],
   pipeline: [],
   auditLogs: [],
+  companyOptions: [],
+  metrics: {
+    totalCompanies: 0,
+    totalContacts: 0,
+    totalPipeline: 0,
+    activePipeline: 0,
+    followUpsDue: 0,
+    processingCompanies: 0,
+    stageCounts: {
+      new: 0,
+      researching: 0,
+      qualified: 0,
+      contacted: 0,
+      replied: 0,
+      meeting: 0,
+      won: 0,
+      lost: 0,
+    },
+    recentlyAdded: [],
+    duePipeline: [],
+  },
+  pagination: {
+    companies: { page: 1, pageSize: 50, total: 0, pageCount: 1 },
+    contacts: { page: 1, pageSize: 50, total: 0, pageCount: 1 },
+    pipeline: { page: 1, pageSize: 50, total: 0, pageCount: 1 },
+  },
 };

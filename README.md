@@ -172,9 +172,14 @@ internals.
   stage from New through Won/Lost. Composite organization-aware foreign keys
   prevent contacts and pipeline rows from crossing tenant boundaries.
 
-The audit view resolves actor names/emails when available and supports local
-search across actions, entities, and actors. It intentionally displays the
-latest 100 tenant entries; add server-side pagination before high-volume use.
+The workbench uses bounded server-side pages for company, contact, and pipeline
+records (50 by default, 100 maximum), with tenant-scoped search and filters
+executed in Postgres. Dashboard KPIs use aggregate queries rather than the
+current page. The contact/company selector is capped at 5,000 lightweight
+options; introduce a searchable option endpoint before exceeding that size.
+The audit view resolves actor names/emails when available and intentionally
+displays the latest 100 tenant entries; add audit pagination before high-volume
+use.
 
 Ingestion stores an organization-scoped run token plus a sanitized error state
 on the company. Completion and failure writes require the active token, so a

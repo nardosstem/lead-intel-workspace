@@ -1,6 +1,18 @@
 import "server-only";
 
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  ilike,
+  isNotNull,
+  lte,
+  notInArray,
+  or,
+} from "drizzle-orm";
 
 import {
   auditLogs,
@@ -12,6 +24,7 @@ import {
   users,
   pipeline,
 } from "@/lib/db";
+import type { PipelineStage } from "@/lib/db/pipeline";
 
 import { getLeadContext } from "./context";
 import {
@@ -22,8 +35,32 @@ import {
   type OrganizationMemberRecord,
   type OrganizationInvitationRecord,
   type PipelineRecord,
+  defaultWorkbenchQuery,
+  type WorkbenchPageInfo,
+  type WorkbenchQuery,
   type WorkbenchSnapshot,
 } from "../types";
+
+const MAX_COMPANY_OPTIONS = 5_000;
+const RECENT_COMPANY_LIMIT = 5;
+const DUE_PIPELINE_LIMIT = 20;
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
+function pageInfo(page: number, pageSize: number, total: number): WorkbenchPageInfo {
+  return {
+    page,
+    pageSize,
+    total,
+    pageCount: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
+function countValue(row: { count: number | string } | undefined): number {
+  return Number(row?.count ?? 0);
+}
 
 function toIso(value: Date): string {
   return value.toISOString();
@@ -114,7 +151,9 @@ function toAuditRecord(row: {
   };
 }
 
-export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
+export async function getWorkbenchSnapshot(
+  query: WorkbenchQuery = defaultWorkbenchQuery,
+): Promise<WorkbenchSnapshot> {
   const context = await getLeadContext();
 
   if (!context) {
@@ -122,7 +161,75 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   }
 
   const db = getDatabase();
-  const [organizationRows, memberRows, invitationRows, companyRows, contactRows, pipelineRows, auditRows] = await Promise.all([
+  const companySearch = query.companySearch
+    ? `%${escapeLike(query.companySearch)}%`
+    : null;
+  const contactSearch = query.contactSearch
+    ? `%${escapeLike(query.contactSearch)}%`
+    : null;
+  const companyWhere = and(
+    eq(companies.organizationId, context.organizationId),
+    companySearch
+      ? or(
+          ilike(companies.name, companySearch),
+          ilike(companies.domain, companySearch),
+          ilike(companies.website, companySearch),
+          ilike(companies.industry, companySearch),
+          ilike(companies.location, companySearch),
+          ilike(companies.status, companySearch),
+        )
+      : undefined,
+    query.companyStatus ? eq(companies.status, query.companyStatus) : undefined,
+  );
+  const contactWhere = and(
+    eq(contacts.organizationId, context.organizationId),
+    query.contactCompanyId
+      ? eq(contacts.companyId, query.contactCompanyId)
+      : undefined,
+    contactSearch
+      ? or(
+          ilike(contacts.name, contactSearch),
+          ilike(contacts.title, contactSearch),
+          ilike(contacts.email, contactSearch),
+          ilike(contacts.linkedin, contactSearch),
+          ilike(contacts.notes, contactSearch),
+          ilike(companies.name, contactSearch),
+          ilike(companies.domain, contactSearch),
+        )
+      : undefined,
+  );
+  const pipelineWhere = eq(pipeline.organizationId, context.organizationId);
+  const activePipelineWhere = and(
+    pipelineWhere,
+    notInArray(pipeline.stage, ["won", "lost"]),
+  );
+  const duePipelineWhere = and(
+    activePipelineWhere,
+    isNotNull(pipeline.nextFollowUpAt),
+    lte(pipeline.nextFollowUpAt, new Date()),
+  );
+
+  const [
+    organizationRows,
+    memberRows,
+    invitationRows,
+    companyRows,
+    companyTotalRows,
+    contactRows,
+    contactTotalRows,
+    pipelineRows,
+    pipelineTotalRows,
+    companyOptions,
+    totalCompanyRows,
+    totalContactRows,
+    activePipelineRows,
+    followUpRows,
+    processingCompanyRows,
+    stageCountRows,
+    recentCompanyRows,
+    duePipelineRows,
+    auditRows,
+  ] = await Promise.all([
     db
       .select({
         name: organizations.name,
@@ -159,10 +266,16 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
     db
       .select()
       .from(companies)
-      .where(eq(companies.organizationId, context.organizationId))
-      .orderBy(desc(companies.createdAt)),
+      .where(companyWhere)
+      .orderBy(desc(companies.createdAt), desc(companies.id))
+      .limit(query.pageSize)
+      .offset((query.companiesPage - 1) * query.pageSize),
     db
-      .select({ contact: contacts, companyName: companies.name })
+      .select({ count: count() })
+      .from(companies)
+      .where(companyWhere),
+    db
+      .select({ contact: contacts, company: companies })
       .from(contacts)
       .innerJoin(
         companies,
@@ -172,8 +285,22 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
           eq(companies.organizationId, context.organizationId),
         ),
       )
-      .where(eq(contacts.organizationId, context.organizationId))
-      .orderBy(desc(contacts.createdAt)),
+      .where(contactWhere)
+      .orderBy(desc(contacts.createdAt), desc(contacts.id))
+      .limit(query.pageSize)
+      .offset((query.contactsPage - 1) * query.pageSize),
+    db
+      .select({ count: count() })
+      .from(contacts)
+      .innerJoin(
+        companies,
+        and(
+          eq(contacts.companyId, companies.id),
+          eq(contacts.organizationId, companies.organizationId),
+          eq(companies.organizationId, context.organizationId),
+        ),
+      )
+      .where(contactWhere),
     db
       .select({
         pipeline,
@@ -197,8 +324,82 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
           eq(contacts.organizationId, context.organizationId),
         ),
       )
-      .where(eq(pipeline.organizationId, context.organizationId))
-      .orderBy(desc(pipeline.updatedAt)),
+      .where(pipelineWhere)
+      .orderBy(desc(pipeline.updatedAt), desc(pipeline.id))
+      .limit(query.pageSize)
+      .offset((query.pipelinePage - 1) * query.pageSize),
+    db
+      .select({ count: count() })
+      .from(pipeline)
+      .where(pipelineWhere),
+    db
+      .select({ id: companies.id, name: companies.name })
+      .from(companies)
+      .where(eq(companies.organizationId, context.organizationId))
+      .orderBy(asc(companies.name), asc(companies.id))
+      .limit(MAX_COMPANY_OPTIONS),
+    db
+      .select({ count: count() })
+      .from(companies)
+      .where(eq(companies.organizationId, context.organizationId)),
+    db
+      .select({ count: count() })
+      .from(contacts)
+      .where(eq(contacts.organizationId, context.organizationId)),
+    db
+      .select({ count: count() })
+      .from(pipeline)
+      .where(activePipelineWhere),
+    db
+      .select({ count: count() })
+      .from(pipeline)
+      .where(duePipelineWhere),
+    db
+      .select({ count: count() })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.organizationId, context.organizationId),
+          eq(companies.enrichmentStatus, "processing"),
+        ),
+      ),
+    db
+      .select({ stage: pipeline.stage, count: count() })
+      .from(pipeline)
+      .where(pipelineWhere)
+      .groupBy(pipeline.stage),
+    db
+      .select()
+      .from(companies)
+      .where(eq(companies.organizationId, context.organizationId))
+      .orderBy(desc(companies.createdAt), desc(companies.id))
+      .limit(RECENT_COMPANY_LIMIT),
+    db
+      .select({
+        pipeline,
+        companyName: companies.name,
+        contactName: contacts.name,
+      })
+      .from(pipeline)
+      .leftJoin(
+        companies,
+        and(
+          eq(pipeline.companyId, companies.id),
+          eq(pipeline.organizationId, companies.organizationId),
+          eq(companies.organizationId, context.organizationId),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(pipeline.contactId, contacts.id),
+          eq(pipeline.organizationId, contacts.organizationId),
+          eq(contacts.organizationId, context.organizationId),
+        ),
+      )
+      .where(duePipelineWhere)
+      .orderBy(asc(pipeline.nextFollowUpAt), desc(pipeline.updatedAt))
+      .limit(DUE_PIPELINE_LIMIT),
     db
       .select({
         log: auditLogs,
@@ -213,6 +414,23 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   ]);
   const currentUserRole =
     memberRows.find((member) => member.id === context.userId)?.role ?? "member";
+
+  const stageCounts: Record<PipelineStage, number> = {
+    new: 0,
+    researching: 0,
+    qualified: 0,
+    contacted: 0,
+    replied: 0,
+    meeting: 0,
+    won: 0,
+    lost: 0,
+  };
+  for (const row of stageCountRows) {
+    stageCounts[row.stage] = countValue(row);
+  }
+  const companyTotal = countValue(companyTotalRows[0]);
+  const contactTotal = countValue(contactTotalRows[0]);
+  const pipelineTotal = countValue(pipelineTotalRows[0]);
 
   return {
     settings: {
@@ -246,11 +464,29 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
                 }],
           ),
     companies: companyRows.map(toCompanyRecord),
-    contacts: contactRows.map((row) =>
-      toContactRecord(row.contact, row.companyName),
+    relatedCompanies: Array.from(
+      new Map(contactRows.map((row) => [row.company.id, toCompanyRecord(row.company)])).values(),
     ),
+    contacts: contactRows.map((row) => toContactRecord(row.contact, row.company.name)),
     pipeline: pipelineRows.map(toPipelineRecord),
     auditLogs: auditRows.map(toAuditRecord),
+    companyOptions,
+    metrics: {
+      totalCompanies: countValue(totalCompanyRows[0]),
+      totalContacts: countValue(totalContactRows[0]),
+      totalPipeline: pipelineTotal,
+      activePipeline: countValue(activePipelineRows[0]),
+      followUpsDue: countValue(followUpRows[0]),
+      processingCompanies: countValue(processingCompanyRows[0]),
+      stageCounts,
+      recentlyAdded: recentCompanyRows.map(toCompanyRecord),
+      duePipeline: duePipelineRows.map(toPipelineRecord),
+    },
+    pagination: {
+      companies: pageInfo(query.companiesPage, query.pageSize, companyTotal),
+      contacts: pageInfo(query.contactsPage, query.pageSize, contactTotal),
+      pipeline: pageInfo(query.pipelinePage, query.pageSize, pipelineTotal),
+    },
   };
 }
 

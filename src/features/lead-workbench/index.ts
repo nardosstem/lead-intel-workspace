@@ -5,6 +5,10 @@ export type {
   ContactRecord,
   OrganizationMemberRecord,
   OrganizationInvitationRecord,
+  CompanyOption,
+  WorkbenchMetrics,
+  WorkbenchPageInfo,
+  WorkbenchQuery,
   PipelineRecord,
   WorkbenchSnapshot,
 } from "./types";

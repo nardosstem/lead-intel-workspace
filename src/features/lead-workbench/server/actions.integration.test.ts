@@ -130,6 +130,37 @@ describe("authenticated lead Server Actions", () => {
     expect(snapshotA.companies.map((company) => company.id)).toEqual([companyA.id]);
     expect(snapshotA.contacts.map((contact) => contact.id)).toEqual([contactA.id]);
 
+    for (let index = 1; index <= 10; index += 1) {
+      expectSuccess(await createCompany({
+        name: `Paged Company ${index}`,
+        website: `https://paged-${index}.example.com`,
+      }));
+    }
+    const firstLeadPage = await getLeads({ companiesPage: 1, pageSize: 10 });
+    const secondLeadPage = await getLeads({ companiesPage: 2, pageSize: 10 });
+    expect(firstLeadPage.companies).toHaveLength(10);
+    expect(secondLeadPage.companies).toHaveLength(1);
+    expect(firstLeadPage.pagination.companies).toMatchObject({
+      page: 1,
+      pageSize: 10,
+      total: 11,
+      pageCount: 2,
+    });
+    expect(firstLeadPage.metrics.totalCompanies).toBe(11);
+    expect(firstLeadPage.metrics.totalPipeline).toBe(12);
+    const searchedLeads = await getLeads({
+      companySearch: "Paged Company 10",
+      pageSize: 10,
+    });
+    expect(searchedLeads.companies.map((company) => company.name)).toEqual([
+      "Paged Company 10",
+    ]);
+    const searchedContacts = await getLeads({
+      contactSearch: "Alex A",
+      pageSize: 10,
+    });
+    expect(searchedContacts.contacts.map((contact) => contact.name)).toEqual(["Alex A"]);
+
     const updatedCompany = expectSuccess(await updateCompany({
       id: companyA.id,
       name: "Integration Company A Updated",

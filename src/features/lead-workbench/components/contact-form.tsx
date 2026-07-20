@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
 import { createContact, updateContact } from "../server/actions";
-import type { ActionResult, CompanyRecord, ContactRecord } from "../types";
+import type { ActionResult, CompanyOption, ContactRecord } from "../types";
 
 function FieldError({ message }: Readonly<{ message?: string }>) {
   return message ? <p className="text-xs text-destructive">{message}</p> : null;
@@ -27,7 +27,7 @@ export function ContactForm({
   onSaved,
   onCancel,
 }: Readonly<{
-  companies: CompanyRecord[];
+  companies: CompanyOption[];
   initial?: ContactRecord;
   onSaved: (contact: ContactRecord) => void;
   onCancel?: () => void;

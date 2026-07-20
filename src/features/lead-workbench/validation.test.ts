@@ -11,6 +11,7 @@ import {
   scoreIcpSchema,
   updateMemberRoleSchema,
   updateMemberStatusSchema,
+  workbenchQuerySchema,
   workspaceSettingsSchema,
 } from "./validation";
 import { assertMemberStatusChange, assertRoleChangeAllowed, RolePolicyError } from "./server/role-policy";
@@ -102,6 +103,29 @@ describe("lead input URL validation", () => {
     expect(
       workspaceSettingsSchema.safeParse({ defaultStage: "new", followUpDays: 0 }).success,
     ).toBe(false);
+  });
+
+  it("bounds and normalizes server-side workbench queries", () => {
+    const parsed = workbenchQuerySchema.safeParse({
+      companiesPage: "2",
+      pageSize: "25",
+      companySearch: "  Acme  ",
+      companyStatus: "customer",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toMatchObject({
+        companiesPage: 2,
+        pageSize: 25,
+        companySearch: "Acme",
+        companyStatus: "customer",
+        contactsPage: 1,
+        pipelinePage: 1,
+      });
+    }
+    expect(workbenchQuerySchema.safeParse({ pageSize: 5 }).success).toBe(false);
+    expect(workbenchQuerySchema.safeParse({ pageSize: 101 }).success).toBe(false);
+    expect(workbenchQuerySchema.safeParse({ companyStatus: "unknown" }).success).toBe(false);
   });
 });
 

@@ -118,6 +118,26 @@ export const workspaceSettingsSchema = z.object({
   followUpDays: z.coerce.number().int().min(1).max(90),
 });
 
+const workbenchPageSchema = z.coerce.number().int().min(1).max(10_000);
+const workbenchPageSizeSchema = z.coerce.number().int().min(10).max(100);
+
+export const workbenchQuerySchema = z.object({
+  companiesPage: workbenchPageSchema.default(1),
+  contactsPage: workbenchPageSchema.default(1),
+  pipelinePage: workbenchPageSchema.default(1),
+  pageSize: workbenchPageSizeSchema.default(50),
+  companySearch: z.string().trim().max(120).default(""),
+  companyStatus: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(companyStatuses).optional(),
+  ),
+  contactSearch: z.string().trim().max(120).default(""),
+  contactCompanyId: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.uuid().optional(),
+  ),
+});
+
 export const updateMemberRoleSchema = z.object({
   targetUserId: z.uuid(),
   role: z.enum(organizationRoles),
