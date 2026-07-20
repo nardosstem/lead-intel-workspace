@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { safeNextPath } from "@/lib/auth/redirect";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +14,6 @@ export const metadata: Metadata = {
 type LoginPageProps = Readonly<{
   searchParams: Promise<{ next?: string; error?: string }>;
 }>;
-
-function safeNextPath(value: string | undefined): string {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/leads";
-}
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
