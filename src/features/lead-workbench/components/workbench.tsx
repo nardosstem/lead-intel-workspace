@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Building2,
@@ -505,6 +506,7 @@ export function LeadWorkbench({
   const [selectedCompany, setSelectedCompany] = useState<CompanyRecord | null>(null);
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineRecord | null>(null);
+  const router = useRouter();
 
   const hasActiveEnrichment = data.companies.some(
     (company) => company.enrichmentStatus === "processing",
@@ -632,9 +634,18 @@ export function LeadWorkbench({
 
   function refresh() {
     startRefresh(async () => {
-      const next = await getLeads();
-      setData(next);
+      try {
+        const next = await getLeads();
+        setData(next);
+      } catch {
+        toast.error("Could not refresh the workspace. Try again.");
+      }
     });
+  }
+
+  function changeView(nextView: WorkbenchView) {
+    setView(nextView);
+    router.replace(nextView === "dashboard" ? "/leads" : `/leads?view=${nextView}`, { scroll: false });
   }
 
   function updateCompanyInState(company: CompanyRecord) {
@@ -801,7 +812,7 @@ export function LeadWorkbench({
           <button
             key={item}
             type="button"
-            onClick={() => setView(item)}
+            onClick={() => changeView(item)}
             className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
               view === item ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}

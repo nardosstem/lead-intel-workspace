@@ -18,17 +18,21 @@ export function CsvImport({ onImported }: Readonly<{ onImported: () => void }>) 
     if (!file) return;
     setFileName(file.name);
     startTransition(async () => {
-      const result = await importCompaniesCsv(await file.text());
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
+      try {
+        const result = await importCompaniesCsv(await file.text());
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(`${result.data.imported} companies imported`);
+        if (result.data.errors.length > 0) {
+          toast.warning(`${result.data.errors.length} CSV rows were skipped`);
+        }
+        onImported();
+        if (inputRef.current) inputRef.current.value = "";
+      } catch {
+        toast.error("The CSV import could not be completed. Try again.");
       }
-      toast.success(`${result.data.imported} companies imported`);
-      if (result.data.errors.length > 0) {
-        toast.warning(`${result.data.errors.length} CSV rows were skipped`);
-      }
-      onImported();
-      if (inputRef.current) inputRef.current.value = "";
     });
   }
 

@@ -48,16 +48,21 @@ export function CompanyForm({
     };
 
     startTransition(async () => {
-      const result: ActionResult<CompanyRecord> = initial
-        ? await updateCompany(input)
-        : await createCompany(input);
-      if (result.ok) {
-        toast.success(initial ? "Company updated" : "Company added");
-        onSaved(result.data);
-        return;
+      try {
+        const result: ActionResult<CompanyRecord> = initial
+          ? await updateCompany(input)
+          : await createCompany(input);
+        if (result.ok) {
+          toast.success(initial ? "Company updated" : "Company added");
+          onSaved(result.data);
+          return;
+        }
+        setError(result.error);
+        setFieldErrors(result.fieldErrors ?? {});
+      } catch {
+        setError("The company could not be saved. Check your connection and try again.");
+        setFieldErrors({});
       }
-      setError(result.error);
-      setFieldErrors(result.fieldErrors ?? {});
     });
   }
 

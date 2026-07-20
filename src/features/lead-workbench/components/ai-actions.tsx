@@ -68,27 +68,31 @@ export function AiActionButtons({
 
   function run(action: string, request: () => Promise<unknown>) {
     startTransition(async () => {
-      const response = await request();
-      if (!isActionResponse(response)) {
-        showFailure("The AI action returned an invalid response.");
-        return;
-      }
-      if (!response.ok) {
-        showFailure(response.error);
-        return;
-      }
+      try {
+        const response = await request();
+        if (!isActionResponse(response)) {
+          showFailure("The AI action returned an invalid response.");
+          return;
+        }
+        if (!response.ok) {
+          showFailure(response.error);
+          return;
+        }
 
-      const data = response.data as Record<string, unknown>;
-      setResultTitle(action);
-      setResultText(
-        typeof data.draft === "string"
-          ? data.draft
-          : typeof data.prep === "string"
-            ? data.prep
-            : JSON.stringify(data, null, 2),
-      );
-      onCompleted?.();
-      toast.success(`${action} is ready`);
+        const data = response.data as Record<string, unknown>;
+        setResultTitle(action);
+        setResultText(
+          typeof data.draft === "string"
+            ? data.draft
+            : typeof data.prep === "string"
+              ? data.prep
+              : JSON.stringify(data, null, 2),
+        );
+        onCompleted?.();
+        toast.success(`${action} is ready`);
+      } catch {
+        showFailure("The AI action could not be completed. Try again.");
+      }
     });
   }
 

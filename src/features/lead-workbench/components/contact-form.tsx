@@ -52,15 +52,20 @@ export function ContactForm({
     };
 
     startTransition(async () => {
-      const result: ActionResult<ContactRecord> = initial
-        ? await updateContact(input)
-        : await createContact(input);
-      if (result.ok) {
-        toast.success(initial ? "Contact updated" : "Contact added");
-        onSaved(result.data);
-      } else {
-        setError(result.error);
-        setFieldErrors(result.fieldErrors ?? {});
+      try {
+        const result: ActionResult<ContactRecord> = initial
+          ? await updateContact(input)
+          : await createContact(input);
+        if (result.ok) {
+          toast.success(initial ? "Contact updated" : "Contact added");
+          onSaved(result.data);
+        } else {
+          setError(result.error);
+          setFieldErrors(result.fieldErrors ?? {});
+        }
+      } catch {
+        setError("The contact could not be saved. Check your connection and try again.");
+        setFieldErrors({});
       }
     });
   }

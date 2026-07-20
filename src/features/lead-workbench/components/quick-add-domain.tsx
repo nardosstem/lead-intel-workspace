@@ -19,15 +19,19 @@ export function QuickAddDomain({ onStarted }: Readonly<{ onStarted?: () => void 
     if (!submittedDomain) return;
 
     startTransition(async () => {
-      const result = await triggerDomainIngestion(submittedDomain);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
+      try {
+        const result = await triggerDomainIngestion(submittedDomain);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
 
-      setDomain("");
-      onStarted?.();
-      toast.success(result.data.message);
+        setDomain("");
+        onStarted?.();
+        toast.success(result.data.message);
+      } catch {
+        toast.error("Ingestion could not be started. Check your connection and try again.");
+      }
     });
   }
 
