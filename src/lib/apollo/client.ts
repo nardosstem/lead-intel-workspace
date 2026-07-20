@@ -302,9 +302,12 @@ export class ApolloClient implements ApolloLeadSource {
 
     if (!response.ok) {
       const message =
-        typeof responseBody === "object" && responseBody !== null && "message" in responseBody &&
-        typeof responseBody.message === "string"
-          ? responseBody.message
+        typeof responseBody === "object" && responseBody !== null
+          ? "message" in responseBody && typeof responseBody.message === "string"
+            ? responseBody.message
+            : "error" in responseBody && typeof responseBody.error === "string"
+              ? responseBody.error
+              : `Apollo returned HTTP ${response.status}`
           : `Apollo returned HTTP ${response.status}`;
       throw new ApolloApiError(message, response.status);
     }

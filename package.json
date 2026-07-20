@@ -13,7 +13,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "db:seed:leads": "tsx src/scripts/seed-leads.ts"
+    "db:seed:leads": "tsx src/scripts/seed-leads.ts",
+    "db:verify-boundaries": "tsx src/scripts/verify-db-boundaries.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -39,6 +41,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

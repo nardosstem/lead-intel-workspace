@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { LeadWorkbench } from "@/features/lead-workbench/components/workbench";
+import { ensureLeadContext } from "@/features/lead-workbench/server/context";
 import { getWorkbenchSnapshot } from "@/features/lead-workbench/server/data";
+import { getCurrentUser } from "@/lib/auth/user";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +27,12 @@ type LeadsPageProps = Readonly<{
 }>;
 
 export default async function LeadsPage({ searchParams }: LeadsPageProps) {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?next=/leads");
+  }
+
+  await ensureLeadContext();
   const params = await searchParams;
   const view = workbenchViews.includes(params.view as (typeof workbenchViews)[number])
     ? (params.view as (typeof workbenchViews)[number])

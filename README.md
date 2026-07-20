@@ -63,12 +63,21 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Inspect the configured database |
 | `npm run db:seed:leads` | Insert a deterministic demo workspace with 10 companies, 20 contacts, and pipeline rows |
+| `npm run db:verify-boundaries` | Verify tenant foreign keys, cascades, and transactional cleanup against `DATABASE_URL` |
+| `npm run e2e` | Run Playwright browser smoke/accessibility coverage (Chromium required) |
 | `npm test` | Run Apollo, Firecrawl, and Inngest contract tests |
 
 GitHub Actions runs `npm test`, `npm run check`, and `npm run build` for pushes
 to `main` and pull requests.
 CSV imports are capped at 5 MB and 500 rows; Next Server Actions allow a 6 MB
 bounded request to accommodate serialization overhead.
+
+Browser coverage is kept separate because it needs a local browser binary and
+authenticated staging credentials for protected lead-workbench flows. Run
+`npx playwright install chromium` once, then `npm run e2e`. The current suite
+covers the public authentication shell, keyboard-visible labels, dark mode, and
+anonymous route protection; add authenticated staging coverage before enabling
+provider-consuming tests in CI.
 
 ## Architecture
 
@@ -122,7 +131,8 @@ internals.
   boundary for provider ingestion, and contacts retain Apollo IDs for stable
   retry deduplication;
   pipeline uses one current record per company or contact and an enum-backed
-  stage from New through Won/Lost.
+  stage from New through Won/Lost. Composite organization-aware foreign keys
+  prevent contacts and pipeline rows from crossing tenant boundaries.
 
 The initial migration adds the cross-schema foreign key to
 `auth.users(id)` manually. This keeps Supabase's managed `auth` schema outside
@@ -141,6 +151,10 @@ Change the schema with this workflow:
 
 The Drizzle connection is server-only, typed to the full schema, reused during
 development hot reloads, and configured for Supabase poolers.
+
+Run `npm run db:verify-boundaries` against staging after migrations. It uses
+random temporary IDs inside a transaction, verifies cross-organization target
+rejection and company-delete cascades, then rolls everything back.
 
 Lead mutations set transaction-local actor and organization context. Database
 triggers on companies, contacts, and pipeline automatically append before/after
@@ -167,14 +181,17 @@ user.
 #### Local demo user
 
 There is no preconfigured email or password, and the seed script cannot create
-Supabase Auth credentials. Create a test user in Supabase Dashboard under
-**Authentication → Users → Add user**. For example, use
-`demo@leadintel.local` and a strong, local-only password of your choice. If
-email confirmation is enabled, confirm the user before signing in.
+Supabase Auth credentials. The `/login` route supports sign-in and self-service
+sign-up. For local testing, use an address such as `demo@leadintel.local` and a
+strong, local-only password of your choice. If email confirmation is enabled,
+confirm the user before signing in.
 
-Then create the application profile that links that Auth user to the seeded
-organization. Run this in the Supabase SQL Editor, replacing the email if you
-used a different one:
+On the first authenticated visit, the app automatically creates the required
+`public.users` profile. If the seeded `lead-intel-demo` organization exists and
+has no members, that first user is attached to it; otherwise a new isolated
+workspace is created. For controlled staging/provisioning, you can instead
+link an Auth user explicitly in the Supabase SQL Editor, replacing the email if
+needed:
 
 ```sql
 insert into public.users (id, organization_id, email, full_name)
@@ -193,9 +210,8 @@ set
 ```
 
 Passwords remain managed by Supabase Auth and are never stored in
-`public.users`. The application currently exposes the auth helpers and session
-refresh boundary but does not include a sign-in screen; use your existing auth
-entry point or add the sign-in UX before testing protected lead actions.
+`public.users`. The app redirects unauthenticated users from `/leads` to
+`/login` and provides sign-out from the workspace header.
 
 The proxy only refreshes authentication state. It is not an authorization
 boundary. Every Server Function, Route Handler, and server-side service must
@@ -303,7 +319,7 @@ Then:
 
 ## Current scope
 
-The initial lead-workbench module and its durable Apollo/Firecrawl/AI ingestion
-workflow are included under `src/features/lead-workbench` and `src/inngest`.
-Sign-in UX, billing, and a production MCP deployment remain separately reviewed
-concerns.
+The initial lead-workbench module, self-service authentication flow, and durable
+Apollo/Firecrawl/AI ingestion workflow are included under
+`src/features/lead-workbench` and `src/inngest`. Billing, invitations/roles,
+and a production MCP deployment remain separately reviewed concerns.

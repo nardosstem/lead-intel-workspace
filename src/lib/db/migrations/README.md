@@ -22,3 +22,8 @@ manual review before a future dedupe migration.
 Migration `0005_*.sql` stores Apollo person IDs on contacts with an
 organization-scoped unique index so provider retries do not rely only on
 mutable email or name heuristics.
+
+Migration `0006_*.sql` adds composite organization-aware foreign keys for
+company/contact relationships. This prevents a database client from attaching
+a lead or pipeline record to a target owned by another organization, even if
+application-level authorization is bypassed.

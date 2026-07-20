@@ -43,6 +43,13 @@
       "when": 1784351970843,
       "tag": "0005_majestic_nicolaos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784523219264,
+      "tag": "0006_friendly_arclight",
+      "breakpoints": true
     }
   ]
 }

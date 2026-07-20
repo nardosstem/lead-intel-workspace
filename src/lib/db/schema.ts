@@ -1,5 +1,6 @@
 import {
   check,
+  foreignKey,
   integer,
   index,
   jsonb,
@@ -143,6 +144,10 @@ export const companies = pgTable(
       table.organizationId,
       table.domain,
     ),
+    uniqueIndex("companies_id_organization_uidx").on(
+      table.id,
+      table.organizationId,
+    ),
     index("companies_status_idx").on(table.organizationId, table.status),
     index("companies_enrichment_status_idx").on(
       table.organizationId,
@@ -184,6 +189,15 @@ export const contacts = pgTable(
       table.organizationId,
       table.apolloId,
     ),
+    uniqueIndex("contacts_id_organization_uidx").on(
+      table.id,
+      table.organizationId,
+    ),
+    foreignKey({
+      columns: [table.companyId, table.organizationId],
+      foreignColumns: [companies.id, companies.organizationId],
+      name: "contacts_company_organization_fk",
+    }).onDelete("cascade"),
   ],
 ).enableRLS();
 
@@ -230,6 +244,16 @@ export const pipeline = pgTable(
     ),
     uniqueIndex("pipeline_company_uidx").on(table.companyId),
     uniqueIndex("pipeline_contact_uidx").on(table.contactId),
+    foreignKey({
+      columns: [table.companyId, table.organizationId],
+      foreignColumns: [companies.id, companies.organizationId],
+      name: "pipeline_company_organization_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.contactId, table.organizationId],
+      foreignColumns: [contacts.id, contacts.organizationId],
+      name: "pipeline_contact_organization_fk",
+    }).onDelete("cascade"),
   ],
 ).enableRLS();
 

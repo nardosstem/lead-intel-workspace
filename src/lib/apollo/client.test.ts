@@ -82,6 +82,19 @@ describe("Apollo client", () => {
     );
   });
 
+  it("surfaces plan errors returned in Apollo's error field", async () => {
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async () =>
+        jsonResponse({ error: "This endpoint is not accessible on the current plan." }, 403),
+    });
+
+    await expect(client.searchDomain("acme.com", ["CEO"])).rejects.toMatchObject({
+      status: 403,
+      message: "This endpoint is not accessible on the current plan.",
+    });
+  });
+
   it("drops unsafe LinkedIn URLs returned by the provider", async () => {
     const client = new ApolloClient({
       apiKey: "apollo-test-key",
