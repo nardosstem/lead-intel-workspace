@@ -376,31 +376,47 @@ export async function importCompaniesCsv(
 
   try {
     const parsed = parseCompaniesCsv(csvText);
-    const imported = await withLeadMutation(async (tx, context) => {
+    const importResult = await withLeadMutation(async (tx, context) => {
       let count = 0;
-      for (const row of parsed.rows) {
-        const inserted = await tx
-          .insert(companies)
-          .values({
-            ...row,
-            domain: normalizeCompanyDomain(row.website),
-            organizationId: context.organizationId,
-          })
-          .returning({ id: companies.id });
-        const company = inserted[0];
-        if (company) {
-          await tx.insert(pipeline).values({
-            organizationId: context.organizationId,
-            companyId: company.id,
-            stage: "new",
+      const errors = [...parsed.errors];
+      for (const [index, row] of parsed.rows.entries()) {
+        const rowNumber = parsed.rowNumbers[index] ?? index + 2;
+        try {
+          await tx.transaction(async (savepoint) => {
+            const inserted = await savepoint
+              .insert(companies)
+              .values({
+                ...row,
+                domain: normalizeCompanyDomain(row.website),
+                organizationId: context.organizationId,
+              })
+              .returning({ id: companies.id });
+            const company = inserted[0];
+            if (!company) throw new Error("Company insert returned no row.");
+            await savepoint.insert(pipeline).values({
+              organizationId: context.organizationId,
+              companyId: company.id,
+              stage: "new",
+            });
           });
           count += 1;
+        } catch (error) {
+          const constraint =
+            typeof error === "object" && error !== null && "constraint" in error && typeof error.constraint === "string"
+              ? error.constraint
+              : null;
+          errors.push({
+            row: rowNumber,
+            message: constraint === "companies_organization_domain_uidx"
+              ? "A company with this domain already exists in the workspace."
+              : "This company row could not be imported.",
+          });
         }
       }
-      return count;
+      return { count, errors };
     });
 
-    return { ok: true, data: { imported, errors: parsed.errors } };
+    return { ok: true, data: { imported: importResult.count, errors: importResult.errors } };
   } catch (error) {
     return actionFailure(error);
   }

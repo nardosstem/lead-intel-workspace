@@ -7,6 +7,7 @@ export type CsvImportError = Readonly<{
 
 export type CompanyCsvParseResult = Readonly<{
   rows: CompanyInput[];
+  rowNumbers: number[];
   errors: CsvImportError[];
 }>;
 
@@ -92,6 +93,7 @@ export function parseCompaniesCsv(input: string): CompanyCsvParseResult {
   }
 
   const parsed: CompanyInput[] = [];
+  const rowNumbers: number[] = [];
   const errors: CsvImportError[] = [];
 
   rows.slice(0, 500).forEach((values, index) => {
@@ -109,6 +111,7 @@ export function parseCompaniesCsv(input: string): CompanyCsvParseResult {
 
     if (result.success) {
       parsed.push(result.data);
+      rowNumbers.push(index + 2);
     } else {
       errors.push({
         row: index + 2,
@@ -121,5 +124,5 @@ export function parseCompaniesCsv(input: string): CompanyCsvParseResult {
     errors.push({ row: 502, message: "Only the first 500 rows were imported." });
   }
 
-  return { rows: parsed, errors };
+  return { rows: parsed, rowNumbers, errors };
 }

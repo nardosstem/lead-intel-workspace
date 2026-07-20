@@ -25,6 +25,7 @@ describe("company CSV parser", () => {
     );
 
     expect(result.rows).toHaveLength(1);
+    expect(result.rowNumbers).toEqual([2]);
     expect(result.rows[0]?.name).toBe("Good Co");
     expect(result.errors).toEqual([
       { row: 3, message: "Use an HTTP or HTTPS URL." },
