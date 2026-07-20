@@ -343,8 +343,9 @@ published, so it is intentionally not added as a dead dependency.
 
 ### External production gates
 
-The repository is ready for deployment, but these provider/account checks must
-be completed in staging or the hosting environment:
+The repository contains deployable code, but autonomous production use requires
+these provider/account checks to be completed in staging or the hosting
+environment:
 
 - Apollo must provide a key with access to `mixed_people/api_search`; the
   current free-plan endpoint can reject ingestion before any contacts exist.
