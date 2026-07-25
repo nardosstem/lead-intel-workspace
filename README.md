@@ -365,11 +365,12 @@ published, so it is intentionally not added as a dead dependency.
 
 ### News signal monitoring
 
-The workbench includes a provider-neutral `LeadSignal` presentation contract
-and a company detail panel. The panel is intentionally empty-state safe until
-the monitoring tables and scheduled scanner are enabled; callers can provide
-`signalsByCompanyId` without coupling the UI to GDELT, RSS, Firecrawl, or a
-specific AI provider.
+The workbench includes organization-scoped monitoring targets, normalized news
+items, signal records, scan history, and a provider-neutral `LeadSignal`
+presentation contract. Company detail views show evidence, source links,
+workflow and decision-maker mappings, with reviewed/dismissed status actions.
+Dashboard users can queue an immediate scan or enable weekly monitoring for a
+company; RSS feeds are optional per target.
 
 The approved monitoring design is:
 
@@ -389,12 +390,13 @@ publication date, likely workflow, and likely decision-maker role. Store
 metadata and short evidence rather than copying full articles; always link back
 to the publisher and review source terms before enabling a production scan.
 
-The first scheduler should run in UTC using `NEWS_SCAN_CRON`, select due
-organization targets, and enforce per-run company/article budgets. A later
-iteration can add organization-local time zones and alternate news adapters
-without changing the signal contract. The UI exposes an optional “Scan now”
-callback but does not invent a client-side scan action before the server
-workflow exists.
+The scheduler runs in UTC by default using `NEWS_SCAN_CRON`, selects due
+organization targets, records partial-provider warnings, and enforces per-run
+company/article budgets. Set `NEWS_SCAN_ENABLED=1` to enable it (the example
+file defaults to `0` until provider budgets are reviewed). `Scan news` queues
+the same durable workflow manually. A later iteration can add organization-
+local time zones and alternate news adapters without changing the signal
+contract.
 
 ### External production gates
 

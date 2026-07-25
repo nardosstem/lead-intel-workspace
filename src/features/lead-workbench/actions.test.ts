@@ -8,6 +8,13 @@ const createEventMock = vi.hoisted(() =>
     validate: vi.fn(async () => undefined),
   })),
 );
+const newsCreateEventMock = vi.hoisted(() =>
+  vi.fn((data: Record<string, unknown>) => ({
+    name: "lead.news.scan.requested",
+    data,
+    validate: vi.fn(async () => undefined),
+  })),
+);
 const contextMock = vi.hoisted(() =>
   vi.fn(async () => ({
     organizationId: "10000000-0000-4000-8000-000000000001",
@@ -18,11 +25,12 @@ const contextMock = vi.hoisted(() =>
 vi.mock("@/inngest/client", () => ({
   inngest: { send: sendMock },
   leadIngestRequested: { create: createEventMock },
+  newsScanRequested: { create: newsCreateEventMock },
 }));
 
 vi.mock("./server/context", () => ({ requireLeadContext: contextMock }));
 
-import { triggerDomainIngestion } from "./actions";
+import { triggerDomainIngestion, triggerNewsScan } from "./actions";
 import {
   createCompany,
   createContact,
@@ -35,6 +43,7 @@ import {
   updateContact,
   updateMemberRole,
   updateMemberStatus,
+  updateLeadSignalStatus,
   updatePipeline,
   updateWorkspaceSettings,
 } from "./server/actions";
@@ -77,6 +86,25 @@ describe("triggerDomainIngestion", () => {
     });
   });
 
+  it("dispatches an organization-scoped background news scan", async () => {
+    const result = await triggerNewsScan();
+
+    expect(result).toEqual({
+      ok: true,
+      data: { message: "News scan started in background" },
+    });
+    expect(newsCreateEventMock).toHaveBeenCalledWith({
+      organizationId: "10000000-0000-4000-8000-000000000001",
+      actorUserId: "10000000-0000-4000-8000-000000000002",
+    });
+    expect(sendMock).toHaveBeenCalledWith({
+      name: "lead.news.scan.requested",
+      data: expect.objectContaining({
+        organizationId: "10000000-0000-4000-8000-000000000001",
+      }),
+    });
+  });
+
   it("returns a useful parse error for malformed CSV before opening a database transaction", async () => {
     const result = await importCompaniesCsv('name\n"Unterminated');
 
@@ -98,6 +126,7 @@ describe("triggerDomainIngestion", () => {
       updateWorkspaceSettings({ defaultStage: "unknown", followUpDays: 0 }),
       updateMemberRole({ targetUserId: "not-a-uuid", role: "member" }),
       updateMemberStatus({ targetUserId: "not-a-uuid", isActive: true }),
+      updateLeadSignalStatus({ id: "not-a-uuid", status: "reviewed" }),
       inviteMember({ email: "not-an-email", role: "member" }),
       revokeInvitation("not-a-uuid"),
     ]);

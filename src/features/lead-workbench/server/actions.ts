@@ -2,11 +2,13 @@
 
 import { and, count, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
+import { isPublicHostname } from "@/lib/domains";
 
 import {
   auditLogs,
   companies,
   contacts,
+  leadSignals,
   monitoringTargets,
   organizations,
   organizationInvitations,
@@ -707,10 +709,27 @@ export async function setCompanyMonitoring(
     companyId: z.uuid(),
     enabled: z.boolean(),
     priority: z.number().int().min(0).max(100).optional(),
+    scanFrequencyDays: z.number().int().min(1).max(90).optional(),
+    rssFeedUrl: z.string().trim().max(500).nullable().optional(),
   }).safeParse(input);
   if (!parsed.success) return validationFailure(parsed.error);
 
   try {
+    const rssFeedUrl = parsed.data.rssFeedUrl
+      ? (() => {
+          try {
+            const url = new URL(parsed.data.rssFeedUrl);
+            if (url.protocol !== "https:" || !isPublicHostname(url.hostname)) return null;
+            url.hash = "";
+            return url.toString().slice(0, 500);
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+    if (parsed.data.rssFeedUrl && !rssFeedUrl) {
+      return { ok: false, error: "RSS feed must be a public HTTPS URL." };
+    }
     return {
       ok: true,
       data: await withLeadMutation(async (tx, context) => {
@@ -728,6 +747,8 @@ export async function setCompanyMonitoring(
             companyId: parsed.data.companyId,
             enabled: parsed.data.enabled,
             priority: parsed.data.priority ?? 50,
+            scanFrequencyDays: parsed.data.scanFrequencyDays ?? 7,
+            rssFeedUrl,
             nextScanAt: null,
           })
           .onConflictDoUpdate({
@@ -735,6 +756,8 @@ export async function setCompanyMonitoring(
             set: {
               enabled: parsed.data.enabled,
               ...(parsed.data.priority === undefined ? {} : { priority: parsed.data.priority }),
+              ...(parsed.data.scanFrequencyDays === undefined ? {} : { scanFrequencyDays: parsed.data.scanFrequencyDays }),
+              ...(parsed.data.rssFeedUrl === undefined ? {} : { rssFeedUrl }),
               ...(parsed.data.enabled ? { nextScanAt: null } : {}),
             },
           })
@@ -742,6 +765,45 @@ export async function setCompanyMonitoring(
         const target = updated[0];
         if (!target) throw new Error("Monitoring setting was not saved.");
         return target;
+      }),
+    };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+/** Marks one tenant-scoped signal as reviewed or dismissed. */
+export async function updateLeadSignalStatus(
+  input: unknown,
+): Promise<ActionResult<{ id: string; status: "new" | "reviewed" | "dismissed" }>> {
+  const parsed = z.object({
+    id: z.uuid(),
+    status: z.enum(["new", "reviewed", "dismissed"]),
+  }).safeParse(input);
+  if (!parsed.success) return validationFailure(parsed.error);
+
+  try {
+    return {
+      ok: true,
+      data: await withLeadMutation(async (tx, context) => {
+        const updated = await tx
+          .update(leadSignals)
+          .set({ status: parsed.data.status })
+          .where(and(eq(leadSignals.id, parsed.data.id), eq(leadSignals.organizationId, context.organizationId)))
+          .returning({ id: leadSignals.id, status: leadSignals.status });
+        const signal = updated[0];
+        if (!signal) throw new Error("Signal not found.");
+
+        await tx.insert(auditLogs).values({
+          organizationId: context.organizationId,
+          actorUserId: context.userId,
+          action: "signal_status_updated",
+          entityType: "lead_signal",
+          entityId: signal.id,
+          changes: { status: signal.status },
+          metadata: { source: "lead-workbench-signals" },
+        });
+        return signal;
       }),
     };
   } catch (error) {

@@ -1,0 +1,1 @@
+ALTER TABLE "monitoring_targets" ADD COLUMN "rss_feed_url" varchar(500);

@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import { cron } from "inngest";
 
 import {
@@ -23,6 +23,7 @@ import {
   extractSignals,
   getGdeltClient,
   rankNewsCandidates,
+  RssClient,
   toLeadSignalInsert,
   type NewsCandidate,
   type NewsArticle,
@@ -42,8 +43,10 @@ type ScanTarget = Readonly<{
   companyId: string;
   companyName: string;
   companyDomain: string | null;
+  rssFeedUrl: string | null;
   industry: string | null;
   priority: number;
+  scanFrequencyDays: number;
   icpScore: number | null;
   lastScannedAt: Date | null;
 }>;
@@ -91,10 +94,11 @@ function contentHash(article: NewsArticle): string {
 async function withSystemTenantContext<T>(
   organizationId: string,
   operation: (tx: Parameters<Parameters<Database["transaction"]>[0]>[0]) => Promise<T>,
+  actorUserId?: string,
 ): Promise<T> {
   const db = getDatabase();
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.current_user_id', '', true)`);
+    await tx.execute(sql`select set_config('app.current_user_id', ${actorUserId ?? ""}, true)`);
     await tx.execute(sql`select set_config('app.current_organization_id', ${organizationId}, true)`);
     return operation(tx);
   });
@@ -112,8 +116,10 @@ async function loadDueTargets(
       companyId: monitoringTargets.companyId,
       companyName: companies.name,
       companyDomain: companies.domain,
+      rssFeedUrl: monitoringTargets.rssFeedUrl,
       industry: companies.industry,
       priority: monitoringTargets.priority,
+      scanFrequencyDays: monitoringTargets.scanFrequencyDays,
       icpScore: companies.icpScore,
       lastScannedAt: monitoringTargets.lastScannedAt,
     })
@@ -132,7 +138,7 @@ async function loadDueTargets(
         or(isNull(monitoringTargets.nextScanAt), lte(monitoringTargets.nextScanAt, now)),
       ),
     )
-    .orderBy(asc(monitoringTargets.nextScanAt), asc(monitoringTargets.priority))
+    .orderBy(asc(monitoringTargets.nextScanAt), desc(monitoringTargets.priority))
     .limit(maxCompanies());
 
   return rows;
@@ -161,6 +167,7 @@ async function persistArticle(
   target: ScanTarget,
   candidate: NewsCandidate,
   relevanceScore: number,
+  actorUserId?: string,
 ): Promise<string> {
   return withSystemTenantContext(target.organizationId, async (tx) => {
     const existing = await tx
@@ -211,7 +218,7 @@ async function persistArticle(
 
     await persistArticleRelationship(tx, target, newsItemId, relevanceScore);
     return newsItemId;
-  });
+  }, actorUserId);
 }
 
 async function persistArticleRelationship(
@@ -238,6 +245,7 @@ async function updateScan(
   scanId: string,
   organizationId: string,
   patch: Partial<ScanCounts> & { status: "completed" | "failed"; error?: string | null },
+  actorUserId?: string,
 ): Promise<void> {
   await withSystemTenantContext(organizationId, async (tx) => {
     await tx
@@ -247,10 +255,10 @@ async function updateScan(
         completedAt: new Date(),
       })
       .where(and(eq(signalScans.id, scanId), eq(signalScans.organizationId, organizationId)));
-  });
+  }, actorUserId);
 }
 
-async function scanTarget(target: ScanTarget): Promise<ScanResult> {
+async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<ScanResult> {
   const now = new Date();
   const startDate = new Date(now.getTime() - DEFAULT_LOOKBACK_DAYS * 86_400_000);
   const queries = buildSignalQueries(target.companyName, target.companyDomain ?? undefined);
@@ -264,6 +272,15 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
       candidates.push(...articles.map((article) => toCandidate(article, target, query.signalType)));
     } catch (error) {
       warnings.push(`GDELT ${query.signalType}: ${safeError(error)}`);
+    }
+  }
+
+  if (target.rssFeedUrl) {
+    try {
+      const rssArticles = await new RssClient().fetch(target.rssFeedUrl);
+      candidates.push(...rssArticles.map((article) => toCandidate(article, target, undefined)));
+    } catch (error) {
+      warnings.push(`RSS ${target.rssFeedUrl}: ${safeError(error)}`);
     }
   }
 
@@ -283,7 +300,7 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
   }
 
   for (const scored of ranked) {
-    const newsItemId = await persistArticle(target, scored.candidate, scored.score);
+    const newsItemId = await persistArticle(target, scored.candidate, scored.score, actorUserId);
     let article = scored.candidate;
     try {
       const firecrawl = getFirecrawlClient();
@@ -331,7 +348,7 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
           .onConflictDoNothing({
             target: [leadSignals.organizationId, leadSignals.companyId, leadSignals.newsItemId, leadSignals.signalType],
           });
-      });
+      }, actorUserId);
       signalsExtracted += extracted.extraction.signals.length;
     }
   }
@@ -341,21 +358,24 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
       .update(monitoringTargets)
       .set({
         lastScannedAt: now,
-        nextScanAt: new Date(now.getTime() + 7 * 86_400_000),
+        nextScanAt: new Date(now.getTime() + target.scanFrequencyDays * 86_400_000),
       })
       .where(and(eq(monitoringTargets.id, target.targetId), eq(monitoringTargets.organizationId, target.organizationId)));
-  });
+  }, actorUserId);
 
   return { candidatesFound: candidates.length, articlesFetched, signalsExtracted, warnings };
 }
 
-async function runOrganizationScan(organizationId: string): Promise<ScanCounts & { warning?: string }> {
+async function runOrganizationScan(organizationId: string, actorUserId?: string): Promise<ScanCounts & { warning?: string }> {
   const targets = await loadDueTargets(organizationId);
-  const scan = await withSystemTenantContext(organizationId, async (tx) =>
-    (await tx
-      .insert(signalScans)
-      .values({ organizationId, status: "running", startedAt: new Date() })
-      .returning({ id: signalScans.id }))[0],
+  const scan = await withSystemTenantContext(
+    organizationId,
+    async (tx) =>
+      (await tx
+        .insert(signalScans)
+        .values({ organizationId, status: "running", startedAt: new Date() })
+        .returning({ id: signalScans.id }))[0],
+    actorUserId,
   );
   if (!scan) throw new Error("Unable to create a signal scan record.");
 
@@ -363,7 +383,7 @@ async function runOrganizationScan(organizationId: string): Promise<ScanCounts &
   const warnings: string[] = [];
   try {
     for (const target of targets) {
-      const result = await scanTarget(target);
+      const result = await scanTarget(target, actorUserId);
       totals.candidatesFound += result.candidatesFound;
       totals.articlesFetched += result.articlesFetched;
       totals.signalsExtracted += result.signalsExtracted;
@@ -373,14 +393,14 @@ async function runOrganizationScan(organizationId: string): Promise<ScanCounts &
       ...totals,
       status: "completed",
       error: warnings.length ? warnings.join(" | ").slice(0, 1_000) : null,
-    });
+    }, actorUserId);
     return { ...totals, ...(warnings.length ? { warning: warnings.join(" | ").slice(0, 1_000) } : {}) };
   } catch (error) {
     await updateScan(scan.id, organizationId, {
       ...totals,
       status: "failed",
       error: safeError(error),
-    });
+    }, actorUserId);
     throw error;
   }
 }
@@ -414,7 +434,7 @@ export const scanNewsRequested = inngest.createFunction(
   },
   async ({ event, step }) => {
     if (!scanEnabled()) return { skipped: true, reason: "NEWS_SCAN_ENABLED=0" };
-    return step.run("scan-organization", () => runOrganizationScan(event.data.organizationId));
+    return step.run("scan-organization", () => runOrganizationScan(event.data.organizationId, event.data.actorUserId));
   },
 );
 

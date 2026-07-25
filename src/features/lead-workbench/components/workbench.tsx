@@ -11,6 +11,7 @@ import {
   CircleDollarSign,
   Clock3,
   Plus,
+  Rss,
   RefreshCw,
   Target,
 } from "lucide-react";
@@ -30,7 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 
 import { companyStatuses, isInvitationRole, isOrganizationRole } from "../validation";
-import { triggerDomainIngestion } from "../actions";
+import { triggerDomainIngestion, triggerNewsScan } from "../actions";
 import { isPipelineStage, pipelineStages, type PipelineStage } from "@/lib/db/pipeline";
 import {
   deleteCompany,
@@ -40,6 +41,8 @@ import {
   revokeInvitation,
   updateMemberRole,
   updateMemberStatus,
+  setCompanyMonitoring,
+  updateLeadSignalStatus,
   updateWorkspaceSettings,
   updatePipeline,
 } from "../server/actions";
@@ -222,7 +225,7 @@ function DashboardView({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <KpiCard
           label="Total leads"
           value={data.metrics.totalCompanies + data.metrics.totalContacts}
@@ -252,6 +255,13 @@ function DashboardView({
               : "You are all caught up"}
           icon={CalendarClock}
           tone={due.length ? "warning" : "default"}
+        />
+        <KpiCard
+          label="New signals"
+          value={data.metrics.newSignals}
+          hint={data.metrics.newSignals ? "Review this week’s intelligence" : "No unreviewed signals"}
+          icon={Rss}
+          tone={data.metrics.newSignals ? "warning" : "default"}
         />
       </div>
 
@@ -819,6 +829,7 @@ export function LeadWorkbench({
   const [editingCompany, setEditingCompany] = useState<CompanyRecord | null>(null);
   const [editingContact, setEditingContact] = useState<ContactRecord | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyRecord | null>(null);
+  const [rssFeedUrl, setRssFeedUrl] = useState("");
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineRecord | null>(null);
   const [isPollingIngestion, setIsPollingIngestion] = useState(false);
@@ -1134,6 +1145,67 @@ export function LeadWorkbench({
     });
   }
 
+  function startNewsScan() {
+    startRefresh(async () => {
+      const result = await triggerNewsScan();
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(result.data.message);
+    });
+  }
+
+  function monitorCompany(company: CompanyRecord) {
+    startRefresh(async () => {
+      const result = await setCompanyMonitoring({ companyId: company.id, enabled: true });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Company added to weekly signal monitoring");
+    });
+  }
+
+  function saveCompanyMonitoring(company: CompanyRecord) {
+    startRefresh(async () => {
+      const result = await setCompanyMonitoring({
+        companyId: company.id,
+        enabled: true,
+        rssFeedUrl: rssFeedUrl.trim() || null,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Monitoring settings saved");
+    });
+  }
+
+  function changeSignalStatus(signalId: string, status: "reviewed" | "dismissed") {
+    startRefresh(async () => {
+      const result = await updateLeadSignalStatus({ id: signalId, status });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setData((current) => ({
+        ...current,
+        signalsByCompanyId: Object.fromEntries(
+          Object.entries(current.signalsByCompanyId).map(([companyId, signals]) => [
+            companyId,
+            signals.map((signal) => signal.id === signalId ? { ...signal, status } : signal),
+          ]),
+        ),
+        metrics: {
+          ...current.metrics,
+          newSignals: Math.max(0, current.metrics.newSignals - 1),
+        },
+      }));
+      toast.success(status === "reviewed" ? "Signal marked reviewed" : "Signal dismissed");
+    });
+  }
+
   function confirmDeleteCompany(company: CompanyRecord) {
     if (!window.confirm(`Delete ${company.name} and its contacts?`)) return;
     startRefresh(async () => {
@@ -1191,6 +1263,12 @@ export function LeadWorkbench({
                 refresh();
               }}
             />
+          )}
+          {view === "dashboard" && (
+            <Button type="button" variant="outline" size="sm" onClick={startNewsScan} disabled={isRefreshing}>
+              <Rss className={isRefreshing ? "size-4 animate-pulse" : "size-4"} aria-hidden="true" />
+              Scan news
+            </Button>
           )}
           <CsvImport onImported={refresh} />
           <Button type="button" size="sm" onClick={() => setCompanyDialog("create")}>
@@ -1349,7 +1427,32 @@ export function LeadWorkbench({
                 <div><p className="text-xs text-muted-foreground">Enrichment</p><p className="mt-1 font-medium capitalize">{selectedCompany.enrichmentStatus}</p></div>
                 <div><p className="text-xs text-muted-foreground">ICP score</p><p className="mt-1 font-medium">{selectedCompany.icpScore ?? "—"}{selectedCompany.icpScore === null ? "" : "/100"}</p></div>
               </div>
-              <SignalPanel signals={signalsByCompanyId[selectedCompany.id] ?? []} />
+              <SignalPanel
+                signals={data.signalsByCompanyId[selectedCompany.id] ?? signalsByCompanyId[selectedCompany.id] ?? []}
+                onStatusChange={changeSignalStatus}
+              />
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Weekly signal monitoring</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Track public AI, hiring, partnership, failure, and automation signals for this company.</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => monitorCompany(selectedCompany)} disabled={isRefreshing}>
+                  <Rss className="size-4" aria-hidden="true" />
+                  Monitor company
+                </Button>
+                <div className="flex w-full flex-wrap items-center gap-2 pt-2">
+                  <Input
+                    value={rssFeedUrl}
+                    onChange={(event) => setRssFeedUrl(event.target.value)}
+                    placeholder="Optional public RSS feed URL"
+                    aria-label="Company RSS feed URL"
+                    className="min-w-56 flex-1"
+                  />
+                  <Button type="button" variant="secondary" size="sm" onClick={() => saveCompanyMonitoring(selectedCompany)} disabled={isRefreshing}>
+                    Save feed
+                  </Button>
+                </div>
+              </div>
               {selectedCompany.enrichmentError ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
                   <p className="font-medium">Enrichment failed</p>

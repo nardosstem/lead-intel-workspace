@@ -29,6 +29,7 @@ export type LeadSignal = Readonly<{
   sourceUrl: string | null;
   publishedAt: string | null;
   createdAt: string;
+  status: "new" | "reviewed" | "dismissed";
 }>;
 
 export const leadSignalTypeLabels: Readonly<Record<LeadSignalType, string>> = {

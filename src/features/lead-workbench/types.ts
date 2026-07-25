@@ -123,6 +123,7 @@ export type WorkbenchMetrics = Readonly<{
   activePipeline: number;
   followUpsDue: number;
   processingCompanies: number;
+  newSignals: number;
   stageCounts: Readonly<Record<PipelineStage, number>>;
   recentlyAdded: CompanyRecord[];
   duePipeline: PipelineRecord[];
@@ -139,6 +140,7 @@ export type WorkbenchSnapshot = {
   auditLogs: AuditRecord[];
   companyOptions: CompanyOption[];
   metrics: WorkbenchMetrics;
+  signalsByCompanyId: Readonly<Record<string, import("./signal-types").LeadSignal[]>>;
   pagination: Readonly<{
     companies: WorkbenchPageInfo;
     contacts: WorkbenchPageInfo;
@@ -185,6 +187,7 @@ export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
     activePipeline: 0,
     followUpsDue: 0,
     processingCompanies: 0,
+    newSignals: 0,
     stageCounts: {
       new: 0,
       researching: 0,
@@ -198,6 +201,7 @@ export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
     recentlyAdded: [],
     duePipeline: [],
   },
+  signalsByCompanyId: {},
   pagination: {
     companies: { page: 1, pageSize: 50, total: 0, pageCount: 1 },
     contacts: { page: 1, pageSize: 50, total: 0, pageCount: 1 },

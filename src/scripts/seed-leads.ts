@@ -6,6 +6,7 @@ import postgres from "postgres";
 import {
   companies,
   contacts,
+  monitoringTargets,
   organizations,
   pipeline,
   type PipelineStage,
@@ -569,7 +570,7 @@ async function seed() {
 
   const client = postgres(databaseUrl, { prepare: false });
   const db = drizzle(client, {
-    schema: { companies, contacts, organizations, pipeline },
+    schema: { companies, contacts, monitoringTargets, organizations, pipeline },
   });
 
   let insertedCompanies = 0;
@@ -759,6 +760,18 @@ async function seed() {
             updatedPipelineRows += 1;
           }
         }
+
+        await tx
+          .insert(monitoringTargets)
+          .values({
+            organizationId: demoOrganizationId,
+            companyId: company.id,
+            enabled: true,
+            priority: company.icpScore ?? 50,
+            scanFrequencyDays: 7,
+            nextScanAt: null,
+          })
+          .onConflictDoNothing({ target: [monitoringTargets.organizationId, monitoringTargets.companyId] });
       }
 
       for (const contact of contactSeeds) {

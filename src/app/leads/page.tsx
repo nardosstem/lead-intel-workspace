@@ -41,5 +41,12 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
     ? (params.view as (typeof workbenchViews)[number])
     : "dashboard";
   const snapshot = await getWorkbenchSnapshot();
-  return <LeadWorkbench key={view} initialView={view} initialData={snapshot} />;
+  return (
+    <LeadWorkbench
+      key={view}
+      initialView={view}
+      initialData={snapshot}
+      signalsByCompanyId={snapshot.signalsByCompanyId}
+    />
+  );
 }

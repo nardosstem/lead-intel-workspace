@@ -16,6 +16,8 @@ import {
 
 import {
   auditLogs,
+  leadSignals,
+  newsItems,
   companies,
   contacts,
   getDatabase,
@@ -40,10 +42,12 @@ import {
   type WorkbenchQuery,
   type WorkbenchSnapshot,
 } from "../types";
+import type { LeadSignal, LeadSignalType } from "../signal-types";
 
 const MAX_COMPANY_OPTIONS = 5_000;
 const RECENT_COMPANY_LIMIT = 5;
 const DUE_PIPELINE_LIMIT = 20;
+const SIGNAL_HISTORY_LIMIT = 200;
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
@@ -129,6 +133,38 @@ export function toPipelineRecord(row: {
     notes: row.pipeline.notes,
     createdAt: toIso(row.pipeline.createdAt),
     updatedAt: toIso(row.pipeline.updatedAt),
+  };
+}
+
+function toLeadSignalRecord(row: {
+  signal: typeof leadSignals.$inferSelect;
+  article: typeof newsItems.$inferSelect | null;
+}): LeadSignal | null {
+  const signalType = row.signal.signalType === "unclassified" ? "other" : row.signal.signalType;
+  const allowed: readonly LeadSignalType[] = [
+    "ai_deployment",
+    "vendor_partnership",
+    "manual_review_hiring",
+    "public_failure",
+    "automation_commitment",
+    "other",
+  ];
+  if (!allowed.includes(signalType as LeadSignalType)) return null;
+
+  return {
+    id: row.signal.id,
+    signalType: signalType as LeadSignalType,
+    title: row.article?.title ?? `${signalType.replaceAll("_", " ")} signal`,
+    summary: row.signal.rationale ?? row.signal.recommendedAction ?? row.signal.evidence ?? "Signal detected.",
+    workflow: row.signal.workflow,
+    decisionMaker: row.signal.decisionMakerRole,
+    confidence: row.signal.confidence,
+    evidence: row.signal.evidence,
+    sourceName: row.article?.publisher ?? row.article?.sourceDomain ?? null,
+    sourceUrl: row.article?.canonicalUrl ?? null,
+    publishedAt: row.article?.publishedAt?.toISOString() ?? null,
+    createdAt: row.signal.createdAt.toISOString(),
+    status: row.signal.status,
   };
 }
 
@@ -225,10 +261,12 @@ export async function getWorkbenchSnapshot(
     activePipelineRows,
     followUpRows,
     processingCompanyRows,
+    newSignalRows,
     stageCountRows,
     recentCompanyRows,
     duePipelineRows,
     auditRows,
+    signalRows,
   ] = await Promise.all([
     db
       .select({
@@ -364,6 +402,10 @@ export async function getWorkbenchSnapshot(
         ),
       ),
     db
+      .select({ count: count() })
+      .from(leadSignals)
+      .where(and(eq(leadSignals.organizationId, context.organizationId), eq(leadSignals.status, "new"))),
+    db
       .select({ stage: pipeline.stage, count: count() })
       .from(pipeline)
       .where(pipelineWhere)
@@ -411,6 +453,20 @@ export async function getWorkbenchSnapshot(
       .where(eq(auditLogs.organizationId, context.organizationId))
       .orderBy(desc(auditLogs.createdAt))
       .limit(100),
+    db
+      .select({ signal: leadSignals, article: newsItems })
+      .from(leadSignals)
+      .leftJoin(
+        newsItems,
+        and(
+          eq(leadSignals.newsItemId, newsItems.id),
+          eq(leadSignals.organizationId, newsItems.organizationId),
+          eq(newsItems.organizationId, context.organizationId),
+        ),
+      )
+      .where(eq(leadSignals.organizationId, context.organizationId))
+      .orderBy(desc(leadSignals.createdAt))
+      .limit(SIGNAL_HISTORY_LIMIT),
   ]);
   const currentUserRole =
     memberRows.find((member) => member.id === context.userId)?.role ?? "member";
@@ -431,6 +487,12 @@ export async function getWorkbenchSnapshot(
   const companyTotal = countValue(companyTotalRows[0]);
   const contactTotal = countValue(contactTotalRows[0]);
   const pipelineTotal = countValue(pipelineTotalRows[0]);
+  const signalsByCompanyId: Record<string, LeadSignal[]> = {};
+  for (const row of signalRows) {
+    const signal = toLeadSignalRecord(row);
+    if (!signal) continue;
+    (signalsByCompanyId[row.signal.companyId] ??= []).push(signal);
+  }
 
   return {
     settings: {
@@ -478,10 +540,12 @@ export async function getWorkbenchSnapshot(
       activePipeline: countValue(activePipelineRows[0]),
       followUpsDue: countValue(followUpRows[0]),
       processingCompanies: countValue(processingCompanyRows[0]),
+      newSignals: countValue(newSignalRows[0]),
       stageCounts,
       recentlyAdded: recentCompanyRows.map(toCompanyRecord),
       duePipeline: duePipelineRows.map(toPipelineRecord),
     },
+    signalsByCompanyId,
     pagination: {
       companies: pageInfo(query.companiesPage, query.pageSize, companyTotal),
       contacts: pageInfo(query.contactsPage, query.pageSize, contactTotal),

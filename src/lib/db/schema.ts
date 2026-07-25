@@ -380,6 +380,7 @@ export const monitoringTargets = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     companyId: uuid("company_id").notNull(),
+    rssFeedUrl: varchar("rss_feed_url", { length: 500 }),
     enabled: boolean("enabled").notNull().default(true),
     priority: integer("priority").notNull().default(50),
     scanFrequencyDays: integer("scan_frequency_days").notNull().default(7),

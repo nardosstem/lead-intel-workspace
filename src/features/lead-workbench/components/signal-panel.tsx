@@ -38,9 +38,13 @@ export type SignalPanelProps = Readonly<{
   lastScannedAt?: string | null;
   isLoading?: boolean;
   onRefresh?: () => void;
+  onStatusChange?: (signalId: string, status: "reviewed" | "dismissed") => void;
 }>;
 
-function SignalCard({ signal }: Readonly<{ signal: LeadSignal }>) {
+function SignalCard({ signal, onStatusChange }: Readonly<{
+  signal: LeadSignal;
+  onStatusChange?: SignalPanelProps["onStatusChange"];
+}>) {
   const Icon = signalIcons[signal.signalType];
   const sourceHref = safeSignalSourceHref(signal.sourceUrl);
   const publishedDate = formatSignalDate(signal.publishedAt);
@@ -101,6 +105,16 @@ function SignalCard({ signal }: Readonly<{ signal: LeadSignal }>) {
           <span>{signal.sourceName}</span>
         ) : null}
       </div>
+      {signal.status === "new" && onStatusChange ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => onStatusChange(signal.id, "reviewed")}>
+            Mark reviewed
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onStatusChange(signal.id, "dismissed")}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -115,6 +129,7 @@ export function SignalPanel({
   lastScannedAt = null,
   isLoading = false,
   onRefresh,
+  onStatusChange,
 }: SignalPanelProps) {
   const scannedDate = formatSignalDate(lastScannedAt);
 
@@ -146,7 +161,7 @@ export function SignalPanel({
           </div>
         ) : signals.length ? (
           <div className="space-y-3" aria-label="Company signals">
-            {signals.map((signal) => <SignalCard key={signal.id} signal={signal} />)}
+            {signals.map((signal) => <SignalCard key={signal.id} signal={signal} onStatusChange={onStatusChange} />)}
           </div>
         ) : (
           <div className="rounded-lg border border-dashed p-8 text-center">
