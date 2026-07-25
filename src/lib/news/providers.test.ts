@@ -23,7 +23,7 @@ describe("GDELT news source", () => {
             {
               url: "https://news.example.com/story#section",
               title: "Acme deploys AI review tooling",
-              seendate: "20260725120000",
+              seendate: "20260725T120000Z",
               domain: "news.example.com",
               language: "English",
               sourcecountry: "United States",

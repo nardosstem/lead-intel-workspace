@@ -52,11 +52,9 @@ function formatGdeltDate(value: Date): string {
 function toDate(value: string | undefined): Date | null {
   if (!value) return null;
   // GDELT normally returns YYYYMMDDhhmmss, but some feeds return ISO dates.
-  const candidate = /^\d{14}$/.test(value)
-    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(
-        8,
-        10,
-      )}:${value.slice(10, 12)}:${value.slice(12, 14)}Z`
+  const compact = /^(\d{4})(\d{2})(\d{2})(?:T)?(\d{2})(\d{2})(\d{2})Z?$/i.exec(value);
+  const candidate = compact
+    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
     : value;
   const parsed = new Date(candidate);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
