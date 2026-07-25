@@ -7,6 +7,7 @@ import {
   auditLogs,
   companies,
   contacts,
+  monitoringTargets,
   organizations,
   organizationInvitations,
   pipeline,
@@ -625,6 +626,13 @@ export async function createCompany(
           ),
         });
 
+        await tx.insert(monitoringTargets).values({
+          organizationId: context.organizationId,
+          companyId: company.id,
+          enabled: true,
+          nextScanAt: null,
+        });
+
         return toCompanyRecord(company);
       }),
     };
@@ -684,6 +692,56 @@ export async function deleteCompany(id: string): Promise<ActionResult<{ id: stri
           throw new Error("Company not found.");
         }
         return deleted[0];
+      }),
+    };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+/** Enables or pauses recurring news monitoring for one tenant-owned company. */
+export async function setCompanyMonitoring(
+  input: unknown,
+): Promise<ActionResult<{ companyId: string; enabled: boolean; priority: number }>> {
+  const parsed = z.object({
+    companyId: z.uuid(),
+    enabled: z.boolean(),
+    priority: z.number().int().min(0).max(100).optional(),
+  }).safeParse(input);
+  if (!parsed.success) return validationFailure(parsed.error);
+
+  try {
+    return {
+      ok: true,
+      data: await withLeadMutation(async (tx, context) => {
+        const company = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.organizationId, context.organizationId)))
+          .limit(1);
+        if (!company[0]) throw new Error("Company not found.");
+
+        const updated = await tx
+          .insert(monitoringTargets)
+          .values({
+            organizationId: context.organizationId,
+            companyId: parsed.data.companyId,
+            enabled: parsed.data.enabled,
+            priority: parsed.data.priority ?? 50,
+            nextScanAt: null,
+          })
+          .onConflictDoUpdate({
+            target: [monitoringTargets.organizationId, monitoringTargets.companyId],
+            set: {
+              enabled: parsed.data.enabled,
+              ...(parsed.data.priority === undefined ? {} : { priority: parsed.data.priority }),
+              ...(parsed.data.enabled ? { nextScanAt: null } : {}),
+            },
+          })
+          .returning({ companyId: monitoringTargets.companyId, enabled: monitoringTargets.enabled, priority: monitoringTargets.priority });
+        const target = updated[0];
+        if (!target) throw new Error("Monitoring setting was not saved.");
+        return target;
       }),
     };
   } catch (error) {
@@ -945,6 +1003,12 @@ export async function importCompaniesCsv(
               nextFollowUpAt: new Date(
                 Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
               ),
+            });
+            await savepoint.insert(monitoringTargets).values({
+              organizationId: context.organizationId,
+              companyId: company.id,
+              enabled: true,
+              nextScanAt: null,
             });
           });
           count += 1;

@@ -12,7 +12,15 @@ import {
 } from "@/lib/apollo";
 import { getAIProvider } from "@/lib/ai/server";
 import { AIProviderError } from "@/lib/ai";
-import { auditLogs, companies, contacts, organizations, pipeline, users } from "@/lib/db";
+import {
+  auditLogs,
+  companies,
+  contacts,
+  monitoringTargets,
+  organizations,
+  pipeline,
+  users,
+} from "@/lib/db";
 import { scrapeDomain, type FirecrawlScrapeResult } from "@/lib/firecrawl";
 
 import {
@@ -185,6 +193,16 @@ async function initializeIngestion(
         ),
       })
       .onConflictDoNothing({ target: pipeline.companyId });
+
+    await tx
+      .insert(monitoringTargets)
+      .values({
+        organizationId: context.organizationId,
+        companyId,
+        enabled: true,
+        nextScanAt: null,
+      })
+      .onConflictDoNothing({ target: [monitoringTargets.organizationId, monitoringTargets.companyId] });
 
     return companyId;
   }, { allowInactiveActor: true });

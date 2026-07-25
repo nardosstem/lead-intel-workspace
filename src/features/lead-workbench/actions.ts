@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { inngest, leadIngestRequested } from "@/inngest/client";
+import { inngest, leadIngestRequested, newsScanRequested } from "@/inngest/client";
 import { isPublicHostname } from "@/lib/domains";
 import { normalizeDomain } from "@/lib/apollo";
 
@@ -58,6 +58,22 @@ export async function triggerDomainIngestion(
     await event.validate();
     await inngest.send({ name: event.name, data: event.data });
     return { ok: true, data: { message: "Ingestion started in background" } };
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+/** Queues an immediate scan of all enabled monitoring targets in this workspace. */
+export async function triggerNewsScan(): Promise<ActionResult<{ message: string }>> {
+  try {
+    const context = await requireLeadContext();
+    const event = newsScanRequested.create({
+      organizationId: context.organizationId,
+      actorUserId: context.userId,
+    });
+    await event.validate();
+    await inngest.send({ name: event.name, data: event.data });
+    return { ok: true, data: { message: "News scan started in background" } };
   } catch (error) {
     return actionFailure(error);
   }

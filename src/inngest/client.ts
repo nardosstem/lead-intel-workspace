@@ -19,4 +19,16 @@ export const leadIngestRequested = eventType("lead.ingest.requested", {
   schema: leadIngestRequestedDataSchema,
 });
 
+/** Manually requests an immediate scan for one tenant's enabled targets. */
+export const newsScanRequestedDataSchema = z.object({
+  organizationId: z.uuid(),
+  actorUserId: z.uuid(),
+});
+
+export type NewsScanRequestedData = z.infer<typeof newsScanRequestedDataSchema>;
+
+export const newsScanRequested = eventType("lead.news.scan.requested", {
+  schema: newsScanRequestedDataSchema,
+});
+
 export const inngest = new Inngest({ id: "lead-workbench" });
