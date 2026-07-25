@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { newsScanRequested } from "@/inngest/client";
 
-import { scanNewsRequested, scanNewsScheduled } from "./scan-news";
+import { __newsScanInternals, scanNewsRequested, scanNewsScheduled } from "./scan-news";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("news scan workflows", () => {
   it("registers a singleton weekly schedule and tenant concurrency key", () => {
@@ -27,5 +31,16 @@ describe("news scan workflows", () => {
       actorUserId: "also-not-a-uuid",
     });
     await expect(invalidEvent.validate()).rejects.toThrow();
+  });
+
+  it("requires explicit opt-in before autonomous scans can run", () => {
+    vi.stubEnv("NEWS_SCAN_ENABLED", "");
+    expect(__newsScanInternals.scanEnabled()).toBe(false);
+
+    vi.stubEnv("NEWS_SCAN_ENABLED", "0");
+    expect(__newsScanInternals.scanEnabled()).toBe(false);
+
+    vi.stubEnv("NEWS_SCAN_ENABLED", "1");
+    expect(__newsScanInternals.scanEnabled()).toBe(true);
   });
 });

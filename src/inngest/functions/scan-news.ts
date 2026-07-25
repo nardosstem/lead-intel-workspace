@@ -65,7 +65,9 @@ function positiveInteger(value: string | undefined, fallback: number, maximum: n
 }
 
 function scanEnabled(): boolean {
-  return process.env.NEWS_SCAN_ENABLED !== "0";
+  // News discovery can consume provider/network budgets. Require an explicit
+  // opt-in so an omitted environment variable never starts autonomous scans.
+  return process.env.NEWS_SCAN_ENABLED === "1";
 }
 
 function maxCompanies(): number {
@@ -442,4 +444,5 @@ export const __newsScanInternals = {
   loadDueTargets,
   runOrganizationScan,
   scanTarget,
+  scanEnabled,
 };
