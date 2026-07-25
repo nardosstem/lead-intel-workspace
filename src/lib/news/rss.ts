@@ -15,6 +15,13 @@ export type RssParserOptions = Readonly<{
 }>;
 
 function decodeXml(value: string): string {
+  const decodeCodePoint = (raw: string, radix: number): string => {
+    const codePoint = Number.parseInt(raw, radix);
+    return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+      ? String.fromCodePoint(codePoint)
+      : "";
+  };
+
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
     .replace(/&amp;/gi, "&")
@@ -22,8 +29,8 @@ function decodeXml(value: string): string {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([\da-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)));
+    .replace(/&#(\d+);/g, (_, code: string) => decodeCodePoint(code, 10))
+    .replace(/&#x([\da-f]+);/gi, (_, code: string) => decodeCodePoint(code, 16));
 }
 
 function stripMarkup(value: string): string {

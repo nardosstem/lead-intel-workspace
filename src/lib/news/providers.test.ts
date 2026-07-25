@@ -127,6 +127,9 @@ describe("RSS source", () => {
 
   it("rejects oversized XML and unsafe feed schemes", async () => {
     expect(() => parseRss("x".repeat(2_000_001))).toThrow(/size limit/i);
+    expect(parseRss(`<rss><item><title>Bad &#x110000; entity</title><link>https://example.com/story</link></item></rss>`)[0]?.title).toBe(
+      "Bad entity",
+    );
     const client = new RssClient();
     await expect(client.fetch("file:///tmp/feed.xml")).rejects.toThrow(/HTTP or HTTPS/i);
   });
