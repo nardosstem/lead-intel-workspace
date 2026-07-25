@@ -66,6 +66,8 @@ import {
   type LeadTableQuery,
 } from "./lead-table";
 import { QuickAddDomain } from "./quick-add-domain";
+import { SignalPanel } from "./signal-panel";
+import type { LeadSignal } from "../signal-types";
 
 export type WorkbenchView =
   | "dashboard"
@@ -801,9 +803,12 @@ function SettingsView({
 export function LeadWorkbench({
   initialData,
   initialView = "dashboard",
+  signalsByCompanyId = {},
 }: Readonly<{
   initialData: WorkbenchSnapshot;
   initialView?: WorkbenchView;
+  /** Optional server-provided signal history; the panel remains empty until monitoring is enabled. */
+  signalsByCompanyId?: Readonly<Record<string, readonly LeadSignal[]>>;
 }>) {
   const [data, setData] = useState(initialData);
   const [listQuery, setListQuery] = useState<WorkbenchQuery>(defaultWorkbenchQuery);
@@ -1344,6 +1349,7 @@ export function LeadWorkbench({
                 <div><p className="text-xs text-muted-foreground">Enrichment</p><p className="mt-1 font-medium capitalize">{selectedCompany.enrichmentStatus}</p></div>
                 <div><p className="text-xs text-muted-foreground">ICP score</p><p className="mt-1 font-medium">{selectedCompany.icpScore ?? "—"}{selectedCompany.icpScore === null ? "" : "/100"}</p></div>
               </div>
+              <SignalPanel signals={signalsByCompanyId[selectedCompany.id] ?? []} />
               {selectedCompany.enrichmentError ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
                   <p className="font-medium">Enrichment failed</p>

@@ -13,7 +13,7 @@ same feature boundary.
 - Drizzle ORM and Drizzle Kit migrations
 - `next-themes`, Lucide icons, and Sonner toasts
 - Provider-neutral AI contracts with a Claude MCP adapter
-- Inngest durable background functions, Apollo lead extraction, and Firecrawl website scraping
+- Inngest durable background functions, Apollo lead extraction, Firecrawl website scraping, and a provider-neutral news signal contract
 
 `package.json` and `package-lock.json` are the dependency source of truth.
 [`requirements.txt`](./requirements.txt) is an implementation contract for
@@ -362,6 +362,39 @@ app serves functions at `/api/inngest`.
 The current Inngest SDK publishes the Next.js adapter as `inngest/next`; the
 separate `@inngest/next` package requested by older setup guides is not
 published, so it is intentionally not added as a dead dependency.
+
+### News signal monitoring
+
+The workbench includes a provider-neutral `LeadSignal` presentation contract
+and a company detail panel. The panel is intentionally empty-state safe until
+the monitoring tables and scheduled scanner are enabled; callers can provide
+`signalsByCompanyId` without coupling the UI to GDELT, RSS, Firecrawl, or a
+specific AI provider.
+
+The approved monitoring design is:
+
+```text
+GDELT DOC + publisher RSS
+  -> weekly Inngest scan
+  -> deterministic recency/source/ICP ranking
+  -> Firecrawl only for the highest-ranked article pages
+  -> IAIProvider structured signal extraction
+  -> audited, organization-scoped signal records
+```
+
+Signals are limited to AI deployments, vendor partnerships, manual-review
+hiring, public failures, and executive automation commitments. Each persisted
+signal should retain a source URL, bounded evidence excerpt, confidence,
+publication date, likely workflow, and likely decision-maker role. Store
+metadata and short evidence rather than copying full articles; always link back
+to the publisher and review source terms before enabling a production scan.
+
+The first scheduler should run in UTC using `NEWS_SCAN_CRON`, select due
+organization targets, and enforce per-run company/article budgets. A later
+iteration can add organization-local time zones and alternate news adapters
+without changing the signal contract. The UI exposes an optional “Scan now”
+callback but does not invent a client-side scan action before the server
+workflow exists.
 
 ### External production gates
 

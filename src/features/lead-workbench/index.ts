@@ -1,4 +1,9 @@
 export { LeadWorkbench } from "./components/workbench";
+export { SignalPanel } from "./components/signal-panel";
+export type {
+  LeadSignal,
+  LeadSignalType,
+} from "./signal-types";
 export type {
   ActionResult,
   CompanyRecord,

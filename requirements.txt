@@ -80,3 +80,15 @@ BACKGROUND INGESTION
 - External API wrappers must enforce server-only credentials, request timeouts, typed response parsing, and safe error messages.
 - Validate external URLs as HTTP(S) and reject private/reserved hosts before handing them to providers.
 - Do not put long-running Apollo, Firecrawl, or AI work in a Server Action; actions only enqueue Inngest events.
+
+NEWS SIGNAL MONITORING
+- Use GDELT DOC and publisher RSS as the initial discovery adapters; keep the adapter interface provider-neutral.
+- Run scans from a durable Inngest cron function, not from a browser timer or a long-running Server Action.
+- Scope every monitoring target, article, signal, and scan to the authenticated organization.
+- Deduplicate by canonical source URL and content hash; retries must not create duplicate articles or signals.
+- Rank candidates before calling Firecrawl or an AI provider; enforce per-run company/article budgets.
+- Classify only the bounded article evidence needed for a lead decision: signal type, confidence, workflow, decision-maker, and next action.
+- Persist source URL, publisher, publication date, evidence excerpt, and model/provider metadata for reviewability.
+- Do not store full article bodies by default. Respect publisher terms, robots guidance, retention limits, and attribution requirements.
+- Treat missing discovery or AI providers as typed partial results: preserve the scan state and source metadata rather than failing the whole organization run.
+- Add tests for query construction, URL canonicalization, signal classification, ranking/deduplication, tenant isolation, retry idempotency, and budget enforcement.
