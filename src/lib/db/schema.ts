@@ -34,6 +34,32 @@ export const organizationInvitationStatusEnum = pgEnum("organization_invitation_
   "failed",
   "revoked",
 ] as const);
+export const newsSourceTypeEnum = pgEnum("news_source_type", ["gdelt", "rss"] as const);
+export const leadSignalTypeEnum = pgEnum("lead_signal_type", [
+  "ai_deployment",
+  "vendor_partnership",
+  "manual_review_hiring",
+  "public_failure",
+  "automation_commitment",
+  "other",
+  "unclassified",
+] as const);
+export const leadSignalUrgencyEnum = pgEnum("lead_signal_urgency", [
+  "low",
+  "medium",
+  "high",
+] as const);
+export const leadSignalStatusEnum = pgEnum("lead_signal_status", [
+  "new",
+  "reviewed",
+  "dismissed",
+] as const);
+export const signalScanStatusEnum = pgEnum("signal_scan_status", [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+] as const);
 
 export const organizations = pgTable(
   "organizations",
@@ -345,6 +371,256 @@ export const pipeline = pgTable(
   ],
 ).enableRLS();
 
+/** Companies that should be checked for new intelligence on a recurring basis. */
+export const monitoringTargets = pgTable(
+  "monitoring_targets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    priority: integer("priority").notNull().default(50),
+    scanFrequencyDays: integer("scan_frequency_days").notNull().default(7),
+    lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
+    nextScanAt: timestamp("next_scan_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "monitoring_targets_priority_check",
+      sql`${table.priority} >= 0 AND ${table.priority} <= 100`,
+    ),
+    check(
+      "monitoring_targets_scan_frequency_days_check",
+      sql`${table.scanFrequencyDays} >= 1 AND ${table.scanFrequencyDays} <= 90`,
+    ),
+    uniqueIndex("monitoring_targets_organization_company_uidx").on(
+      table.organizationId,
+      table.companyId,
+    ),
+    index("monitoring_targets_due_idx").on(
+      table.organizationId,
+      table.enabled,
+      table.nextScanAt,
+    ),
+    foreignKey({
+      columns: [table.companyId, table.organizationId],
+      foreignColumns: [companies.id, companies.organizationId],
+      name: "monitoring_targets_company_organization_fk",
+    }).onDelete("cascade"),
+  ],
+).enableRLS();
+
+/** Provider-normalized article metadata. Full article bodies are never stored. */
+export const newsItems = pgTable(
+  "news_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    canonicalUrl: varchar("canonical_url", { length: 2_048 }).notNull(),
+    title: varchar("title", { length: 500 }).notNull(),
+    publisher: varchar("publisher", { length: 160 }),
+    sourceDomain: varchar("source_domain", { length: 253 }),
+    sourceType: newsSourceTypeEnum("source_type").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    excerpt: varchar("excerpt", { length: 2_000 }),
+    contentHash: varchar("content_hash", { length: 128 }),
+    rawMetadata: jsonb("raw_metadata")
+      .$type<Readonly<Record<string, string | number | boolean | null>>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("news_items_organization_canonical_url_uidx").on(
+      table.organizationId,
+      table.canonicalUrl,
+    ),
+    uniqueIndex("news_items_id_organization_uidx").on(table.id, table.organizationId),
+    index("news_items_organization_published_at_idx").on(
+      table.organizationId,
+      table.publishedAt,
+    ),
+    index("news_items_organization_source_type_idx").on(
+      table.organizationId,
+      table.sourceType,
+    ),
+  ],
+).enableRLS();
+
+/** Tenant-scoped relationship between an article and the company it mentions. */
+export const companyNewsItems = pgTable(
+  "company_news_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull(),
+    newsItemId: uuid("news_item_id").notNull(),
+    relevanceScore: integer("relevance_score").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "company_news_items_relevance_score_check",
+      sql`${table.relevanceScore} >= 0 AND ${table.relevanceScore} <= 100`,
+    ),
+    uniqueIndex("company_news_items_organization_company_news_uidx").on(
+      table.organizationId,
+      table.companyId,
+      table.newsItemId,
+    ),
+    index("company_news_items_organization_company_idx").on(
+      table.organizationId,
+      table.companyId,
+    ),
+    index("company_news_items_organization_news_idx").on(
+      table.organizationId,
+      table.newsItemId,
+    ),
+    foreignKey({
+      columns: [table.companyId, table.organizationId],
+      foreignColumns: [companies.id, companies.organizationId],
+      name: "company_news_items_company_organization_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.newsItemId, table.organizationId],
+      foreignColumns: [newsItems.id, newsItems.organizationId],
+      name: "company_news_items_news_organization_fk",
+    }).onDelete("cascade"),
+  ],
+).enableRLS();
+
+/** A normalized intelligence signal extracted from a news item. */
+export const leadSignals = pgTable(
+  "lead_signals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull(),
+    newsItemId: uuid("news_item_id"),
+    signalType: leadSignalTypeEnum("signal_type").notNull(),
+    confidence: integer("confidence").notNull().default(0),
+    workflow: varchar("workflow", { length: 240 }),
+    decisionMakerRole: varchar("decision_maker_role", { length: 160 }),
+    rationale: varchar("rationale", { length: 2_000 }),
+    evidence: varchar("evidence", { length: 2_000 }),
+    urgency: leadSignalUrgencyEnum("urgency").notNull().default("medium"),
+    recommendedAction: varchar("recommended_action", { length: 2_000 }),
+    status: leadSignalStatusEnum("status").notNull().default("new"),
+    model: varchar("model", { length: 120 }),
+    extractedAt: timestamp("extracted_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "lead_signals_confidence_check",
+      sql`${table.confidence} >= 0 AND ${table.confidence} <= 100`,
+    ),
+    uniqueIndex("lead_signals_organization_company_news_type_uidx").on(
+      table.organizationId,
+      table.companyId,
+      table.newsItemId,
+      table.signalType,
+    ),
+    index("lead_signals_organization_company_idx").on(
+      table.organizationId,
+      table.companyId,
+      table.createdAt,
+    ),
+    index("lead_signals_organization_type_idx").on(
+      table.organizationId,
+      table.signalType,
+      table.createdAt,
+    ),
+    foreignKey({
+      columns: [table.companyId, table.organizationId],
+      foreignColumns: [companies.id, companies.organizationId],
+      name: "lead_signals_company_organization_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.newsItemId, table.organizationId],
+      foreignColumns: [newsItems.id, newsItems.organizationId],
+      name: "lead_signals_news_organization_fk",
+    }).onDelete("cascade"),
+  ],
+).enableRLS();
+
+/** Durable run record for scheduled/manual discovery and enrichment. */
+export const signalScans = pgTable(
+  "signal_scans",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    status: signalScanStatusEnum("status").notNull().default("pending"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    candidatesFound: integer("candidates_found").notNull().default(0),
+    articlesFetched: integer("articles_fetched").notNull().default(0),
+    signalsExtracted: integer("signals_extracted").notNull().default(0),
+    error: varchar("error", { length: 1_000 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "signal_scans_counts_check",
+      sql`${table.candidatesFound} >= 0 AND ${table.articlesFetched} >= 0 AND ${table.signalsExtracted} >= 0`,
+    ),
+    index("signal_scans_organization_created_idx").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+    index("signal_scans_organization_status_idx").on(
+      table.organizationId,
+      table.status,
+    ),
+  ],
+).enableRLS();
+
 export type Organization = typeof organizations.$inferSelect;
 export type NewOrganization = typeof organizations.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -358,3 +634,13 @@ export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Pipeline = typeof pipeline.$inferSelect;
 export type NewPipeline = typeof pipeline.$inferInsert;
+export type MonitoringTarget = typeof monitoringTargets.$inferSelect;
+export type NewMonitoringTarget = typeof monitoringTargets.$inferInsert;
+export type NewsItem = typeof newsItems.$inferSelect;
+export type NewNewsItem = typeof newsItems.$inferInsert;
+export type CompanyNewsItem = typeof companyNewsItems.$inferSelect;
+export type NewCompanyNewsItem = typeof companyNewsItems.$inferInsert;
+export type LeadSignal = typeof leadSignals.$inferSelect;
+export type NewLeadSignal = typeof leadSignals.$inferInsert;
+export type SignalScan = typeof signalScans.$inferSelect;
+export type NewSignalScan = typeof signalScans.$inferInsert;

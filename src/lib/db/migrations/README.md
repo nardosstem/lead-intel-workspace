@@ -60,3 +60,11 @@ audited lifecycle (`pending`, `accepted`, `failed`, or `revoked`). Invitations
 are delivered through the Supabase Admin Auth API, and acceptance creates the
 `public.users` profile only after the Auth callback verifies the session. The
 database keeps invitations tenant-scoped and disallows inviting an owner role.
+
+Migration `0013_*.sql` adds the news intelligence foundation: recurring
+`monitoring_targets`, provider-normalized `news_items`, tenant-safe
+`company_news_items`, typed `lead_signals`, and durable `signal_scans`. Article
+metadata and excerpts are bounded at the application/schema boundary; full
+article bodies are intentionally not persisted. All five tables use the shared
+lead mutation trigger so discovery, classification, and scan lifecycle changes
+remain auditable.
