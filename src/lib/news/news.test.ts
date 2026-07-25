@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AIResult, EntityExtractionRequest, IAIProvider } from "@/lib/ai";
 
-import { extractSignals } from "./extraction";
+import { extractSignals, toLeadSignalInsert } from "./extraction";
 import { buildSignalQueries } from "./queries";
 import { canonicalizeNewsUrl, rankNewsCandidates, scoreNewsCandidate } from "./prioritization";
 import type { NewsCandidate } from "./types";
@@ -180,5 +180,38 @@ describe("signal extraction", () => {
     expect(result.usedFallback).toBe(true);
     expect(result.warning).toContain("provider unavailable");
     expect(result.extraction.signals[0]?.signalType).toBe("public_failure");
+  });
+
+  it("maps a validated signal to tenant-scoped insert values", async () => {
+    const result = await extractSignals(null, {
+      article: {
+        title: "Acme announces automation",
+        canonicalUrl: "https://news.example.com/acme",
+        publisher: "News Example",
+        sourceDomain: "news.example.com",
+        sourceType: "gdelt",
+        publishedAt: new Date("2026-07-25T00:00:00.000Z"),
+        discoveredAt: new Date("2026-07-25T00:00:00.000Z"),
+        excerpt: "The company will automate a manual workflow.",
+        metadata: {},
+      },
+      company: { name: "Acme" },
+      context,
+    });
+    const insert = toLeadSignalInsert({
+      organizationId: "org-1",
+      companyId: "company-1",
+      newsItemId: "news-1",
+      signal: result.extraction.signals[0]!,
+      model: "deterministic-fallback",
+    });
+
+    expect(insert).toMatchObject({
+      organizationId: "org-1",
+      companyId: "company-1",
+      newsItemId: "news-1",
+      status: "new",
+      model: "deterministic-fallback",
+    });
   });
 });

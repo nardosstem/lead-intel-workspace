@@ -3,6 +3,7 @@ import "server-only";
 import type { AIRequestContext, IAIProvider } from "@/lib/ai";
 
 import {
+  signalSchema,
   signalExtractionSchema,
   signalTypeSchema,
   type LeadSignal,
@@ -27,6 +28,44 @@ export type SignalExtractionResult = Readonly<{
   usedFallback: boolean;
   warning?: string;
 }>;
+
+export type LeadSignalInsertValues = Readonly<{
+  organizationId: string;
+  companyId: string;
+  newsItemId: string | null;
+  signalType: SignalType;
+  confidence: number;
+  workflow: string;
+  decisionMakerRole: string;
+  rationale: string;
+  evidence: string;
+  urgency: "low" | "medium" | "high";
+  recommendedAction: string;
+  status: "new";
+  model: string | null;
+  extractedAt: Date;
+}>;
+
+/** Maps a validated extraction into schema-independent insert values. */
+export function toLeadSignalInsert(input: Readonly<{
+  organizationId: string;
+  companyId: string;
+  newsItemId?: string | null;
+  signal: LeadSignal;
+  model?: string | null;
+  extractedAt?: Date;
+}>): LeadSignalInsertValues {
+  const signal = signalSchema.parse(input.signal);
+  return {
+    organizationId: input.organizationId,
+    companyId: input.companyId,
+    newsItemId: input.newsItemId ?? null,
+    ...signal,
+    status: "new",
+    model: input.model ?? null,
+    extractedAt: input.extractedAt ?? new Date(),
+  };
+}
 
 const defaults: Record<SignalType, Omit<LeadSignal, "signalType" | "confidence" | "rationale" | "evidence">> = {
   ai_deployment: {
@@ -171,4 +210,3 @@ export async function extractSignals(
 }
 
 export { signalTypeSchema };
-
