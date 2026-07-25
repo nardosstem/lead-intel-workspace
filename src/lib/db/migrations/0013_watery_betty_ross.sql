@@ -71,6 +71,7 @@ CREATE TABLE "news_items" (
 );
 --> statement-breakpoint
 ALTER TABLE "news_items" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE UNIQUE INDEX "news_items_id_organization_uidx" ON "news_items" USING btree ("id","organization_id");--> statement-breakpoint
 CREATE TABLE "signal_scans" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -106,7 +107,6 @@ CREATE INDEX "lead_signals_organization_type_idx" ON "lead_signals" USING btree 
 CREATE UNIQUE INDEX "monitoring_targets_organization_company_uidx" ON "monitoring_targets" USING btree ("organization_id","company_id");--> statement-breakpoint
 CREATE INDEX "monitoring_targets_due_idx" ON "monitoring_targets" USING btree ("organization_id","enabled","next_scan_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "news_items_organization_canonical_url_uidx" ON "news_items" USING btree ("organization_id","canonical_url");--> statement-breakpoint
-CREATE UNIQUE INDEX "news_items_id_organization_uidx" ON "news_items" USING btree ("id","organization_id");--> statement-breakpoint
 CREATE INDEX "news_items_organization_published_at_idx" ON "news_items" USING btree ("organization_id","published_at");--> statement-breakpoint
 CREATE INDEX "news_items_organization_source_type_idx" ON "news_items" USING btree ("organization_id","source_type");--> statement-breakpoint
 CREATE INDEX "signal_scans_organization_created_idx" ON "signal_scans" USING btree ("organization_id","created_at");--> statement-breakpoint
