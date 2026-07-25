@@ -131,7 +131,30 @@ describe("RSS source", () => {
       "Bad entity",
     );
     const client = new RssClient();
-    await expect(client.fetch("file:///tmp/feed.xml")).rejects.toThrow(/HTTP or HTTPS/i);
+    await expect(client.fetch("file:///tmp/feed.xml")).rejects.toMatchObject({
+      source: "rss",
+      status: 400,
+    });
+  });
+
+  it("returns typed errors for network and HTTP failures", async () => {
+    const failing = new RssClient({
+      fetchImpl: async () => {
+        throw new Error("timed out");
+      },
+    });
+    await expect(failing.fetch("https://example.com/feed.xml")).rejects.toMatchObject({
+      source: "rss",
+      status: 0,
+    });
+
+    const unavailable = new RssClient({
+      fetchImpl: async () => new Response("unavailable", { status: 503 }),
+    });
+    await expect(unavailable.fetch("https://example.com/feed.xml")).rejects.toMatchObject({
+      source: "rss",
+      status: 503,
+    });
   });
 });
 

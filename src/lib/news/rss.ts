@@ -2,7 +2,11 @@ import "server-only";
 
 import { isPublicHostname } from "@/lib/domains";
 
-import { newsArticleSchema, type NewsArticle } from "./types";
+import {
+  newsArticleSchema,
+  NewsSourceError,
+  type NewsArticle,
+} from "./types";
 
 const MAX_XML_BYTES = 2_000_000;
 const MAX_ITEMS = 100;
@@ -150,22 +154,41 @@ export class RssClient {
   }
 
   async fetch(url: string, options: RssParserOptions = {}): Promise<NewsArticle[]> {
-    const parsedUrl = new URL(url);
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      throw new NewsSourceError("rss", "RSS feed URL is invalid.", 400);
+    }
     if (
       (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") ||
       parsedUrl.username ||
       parsedUrl.password ||
       !isPublicHostname(parsedUrl.hostname)
     ) {
-      throw new Error("RSS feed URL must use HTTP or HTTPS.");
+      throw new NewsSourceError("rss", "RSS feed URL must use a public HTTP or HTTPS host.", 400);
     }
-    const response = await this.fetchImpl(parsedUrl.toString(), {
-      headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
-      signal: AbortSignal.timeout(this.timeoutMs),
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error(`RSS feed returned HTTP ${response.status}.`);
-    const xml = await response.text();
-    return parseRss(xml, { ...options, sourceUrl: parsedUrl.toString() });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(parsedUrl.toString(), {
+        headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
+        signal: AbortSignal.timeout(this.timeoutMs),
+        cache: "no-store",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Network request failed";
+      throw new NewsSourceError("rss", `RSS request failed: ${message}`);
+    }
+    if (!response.ok) {
+      throw new NewsSourceError("rss", `RSS feed returned HTTP ${response.status}.`, response.status);
+    }
+    try {
+      const xml = await response.text();
+      return parseRss(xml, { ...options, sourceUrl: parsedUrl.toString() });
+    } catch (error) {
+      if (error instanceof NewsSourceError) throw error;
+      const message = error instanceof Error ? error.message : "RSS feed could not be parsed.";
+      throw new NewsSourceError("rss", message, response.status);
+    }
   }
 }
