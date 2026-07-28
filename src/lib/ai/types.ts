@@ -16,11 +16,19 @@ export type AIUsage = Readonly<{
   outputTokens?: number;
 }>;
 
+export type AIWebSource = Readonly<{
+  uri: string;
+  title?: string;
+  domain?: string;
+}>;
+
 export type AIResult<T> = Readonly<{
   data: T;
   provider: string;
   model?: string;
   usage?: AIUsage;
+  sources?: readonly AIWebSource[];
+  searchQueries?: readonly string[];
 }>;
 
 export type EntityExtractionRequest<T> = Readonly<{

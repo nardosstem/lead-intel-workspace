@@ -6,11 +6,12 @@ import { GeminiProvider, type GeminiGenerateContent } from "./gemini-provider";
 
 const context = { organizationId: "org-1", actorUserId: "user-1" } as const;
 
-function response(text: string, modelVersion = "gemini-test") {
+function response(text: string, modelVersion = "gemini-test", extra: Record<string, unknown> = {}) {
   return {
     text,
     modelVersion,
     usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 8 },
+    ...extra,
   } as never;
 }
 
@@ -51,7 +52,12 @@ describe("GeminiProvider", () => {
     const client: GeminiGenerateContent = vi.fn(async (parameters) => {
       calls.push(parameters);
       return calls.length === 1
-        ? response("Grounded public research from current sources.")
+        ? response("Grounded public research from current sources.", "gemini-test", {
+            candidates: [{ groundingMetadata: {
+              webSearchQueries: ["Acme recent news"],
+              groundingChunks: [{ web: { uri: "https://news.example.com/acme", title: "Acme news" } }],
+            } }],
+          })
         : response('{"summary":"Grounded summary"}');
     });
     const provider = new GeminiProvider({
@@ -60,7 +66,7 @@ describe("GeminiProvider", () => {
       client,
     });
 
-    await provider.extractEntities({
+    const result = await provider.extractEntities({
       text: "Research Acme",
       schema: z.object({ summary: z.string() }),
       instructions: "Return a summary.",
@@ -71,6 +77,27 @@ describe("GeminiProvider", () => {
     expect(calls[0]?.config?.tools).toEqual([{ googleSearch: {} }]);
     expect(calls[1]?.config?.tools).toBeUndefined();
     expect(calls[1]?.contents).toContain("Grounded public research");
+    expect(result.sources).toEqual([{ uri: "https://news.example.com/acme", title: "Acme news" }]);
+    expect(result.searchQueries).toEqual(["Acme recent news"]);
+  });
+
+  it("redacts common personal identifiers from public free-tier prompts", async () => {
+    let request: Parameters<GeminiGenerateContent>[0] | undefined;
+    const client: GeminiGenerateContent = vi.fn(async (parameters) => {
+      request = parameters;
+      return response('{"summary":"ok"}');
+    });
+    const provider = new GeminiProvider({ apiKey: "gemini-key", client });
+
+    await provider.extractEntities({
+      text: "Public article contact alex@example.com, +1 (212) 555-0199, https://linkedin.com/in/alex.",
+      schema: z.object({ summary: z.string() }),
+      context: { ...context, dataClassification: "public" },
+    });
+
+    expect(request?.contents).not.toContain("alex@example.com");
+    expect(request?.contents).not.toContain("555-0199");
+    expect(request?.contents).toContain("[email redacted]");
   });
 
   it("does not send private data through the free-tier provider by default", async () => {

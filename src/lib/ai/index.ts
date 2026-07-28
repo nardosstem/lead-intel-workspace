@@ -10,6 +10,7 @@ export type { ClaudeMCPTransport, MCPToolCall } from "./transport";
 export type {
   AIRequestContext,
   AIResult,
+  AIWebSource,
   AIUsage,
   EntityExtractionRequest,
   GenerateDraftRequest,

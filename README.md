@@ -307,7 +307,8 @@ Business logic depends only on `IAIProvider`, whose typed operations are:
 - `summarizeText()`
 - `generateDraft()`
 
-`createAIProvider()` remains the composition root. `GeminiProvider` is the
+`getAIProvider()` is the application composition root and `createAIProvider()`
+remains the lower-level adapter factory. `GeminiProvider` is the
 default direct API adapter when `GEMINI_API_KEY` is configured; it uses
 `gemini-2.5-flash` by default, supports Zod-backed structured output, and can
 run a bounded Google Search grounding pass for public research. `ClaudeMCPProvider`
@@ -343,9 +344,11 @@ Set `GEMINI_API_KEY` to a server-only Google AI Studio key to use Gemini by
 default. `GEMINI_SEARCH_ENABLED=1` enables the public research grounding pass;
 the app keeps structured extraction as a separate second pass for Gemini 2.5
 compatibility. Free-tier Gemini projects may use prompts for product
-improvement and human review, so `GEMINI_ALLOW_PRIVATE_DATA=0` routes private
-contact prompts to Claude instead. Paid Gemini projects can explicitly opt in
-with `GEMINI_ALLOW_PRIVATE_DATA=1` after reviewing Google's terms.
+improvement and human review, so the adapter best-effort redacts common email,
+phone, and profile identifiers from public prompts and
+`GEMINI_ALLOW_PRIVATE_DATA=0` routes private contact prompts to Claude instead.
+Paid Gemini projects can explicitly opt in with `GEMINI_ALLOW_PRIVATE_DATA=1`
+after reviewing Google's terms.
 
 Set `CLAUDE_MCP_ENDPOINT` to an HTTPS bridge that accepts `{ name, arguments }`
 and returns the response envelope expected by `ClaudeMCPProvider` when Claude
