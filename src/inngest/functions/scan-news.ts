@@ -329,6 +329,7 @@ async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<Sca
       context: {
         organizationId: target.organizationId,
         traceId: `news-scan:${target.organizationId}:${target.companyId}`,
+        dataClassification: "public",
       },
     });
     if (extracted.warning) warnings.push(`AI ${scored.candidate.canonicalUrl}: ${extracted.warning}`);

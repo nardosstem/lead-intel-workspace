@@ -1,6 +1,11 @@
 import "server-only";
 
-import { AIProviderError, createAIProvider } from "@/lib/ai";
+import {
+  AIProviderError,
+  FallbackAIProvider,
+  GeminiProvider,
+  createAIProvider,
+} from "@/lib/ai";
 import type { ClaudeMCPTransport, IAIProvider, MCPToolCall } from "@/lib/ai";
 
 const AI_REQUEST_TIMEOUT_MS = 30_000;
@@ -82,13 +87,33 @@ const globalForAI = globalThis as typeof globalThis & {
 };
 
 export function getAIProvider(): IAIProvider {
-  return (globalForAI.leadIntelAIProvider ??= createAIProvider({
-    provider: "claude-mcp",
-    transport: process.env.CLAUDE_MCP_ENDPOINT
-      ? new HttpClaudeMCPTransport(
+  if (globalForAI.leadIntelAIProvider) return globalForAI.leadIntelAIProvider;
+
+  const claude = process.env.CLAUDE_MCP_ENDPOINT?.trim()
+    ? createAIProvider({
+        provider: "claude-mcp",
+        transport: new HttpClaudeMCPTransport(
           process.env.CLAUDE_MCP_ENDPOINT,
           process.env.CLAUDE_MCP_AUTH_TOKEN,
-        )
-      : new UnconfiguredClaudeMCPTransport(),
-  }));
+        ),
+      })
+    : undefined;
+  const unconfigured = createAIProvider({
+    provider: "claude-mcp",
+    transport: new UnconfiguredClaudeMCPTransport(),
+  });
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+  const gemini = geminiApiKey
+    ? new GeminiProvider({
+        apiKey: geminiApiKey,
+        model: process.env.GEMINI_MODEL,
+        searchEnabled: process.env.GEMINI_SEARCH_ENABLED !== "0",
+        allowPrivateData: process.env.GEMINI_ALLOW_PRIVATE_DATA === "1",
+      })
+    : undefined;
+  const preference = process.env.AI_PROVIDER?.trim().toLowerCase();
+  const primary = preference === "claude" ? claude ?? unconfigured : gemini ?? claude ?? unconfigured;
+  const fallback = preference === "claude" ? gemini : gemini ? claude : undefined;
+
+  return (globalForAI.leadIntelAIProvider = new FallbackAIProvider(primary, fallback));
 }

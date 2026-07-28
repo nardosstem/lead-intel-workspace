@@ -5,6 +5,10 @@ export type AIRequestContext = Readonly<{
   actorUserId?: string;
   traceId?: string;
   signal?: AbortSignal;
+  /** Ask a provider with web-search capability to ground this request. */
+  webSearch?: boolean;
+  /** Prevent free-tier providers from receiving contact/private workspace data. */
+  dataClassification?: "public" | "private";
 }>;
 
 export type AIUsage = Readonly<{

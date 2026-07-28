@@ -4,6 +4,8 @@ export {
   ClaudeMCPProvider,
   type ClaudeMCPToolNames,
 } from "./claude-mcp-provider";
+export { GeminiProvider, type GeminiProviderOptions } from "./gemini-provider";
+export { FallbackAIProvider } from "./fallback-provider";
 export type { ClaudeMCPTransport, MCPToolCall } from "./transport";
 export type {
   AIRequestContext,

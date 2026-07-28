@@ -12,7 +12,7 @@ same feature boundary.
 - Supabase Auth, Postgres, and Storage
 - Drizzle ORM and Drizzle Kit migrations
 - `next-themes`, Lucide icons, and Sonner toasts
-- Provider-neutral AI contracts with a Claude MCP adapter
+- Provider-neutral AI contracts with a Gemini default adapter and Claude MCP fallback
 - Inngest durable background functions, Apollo lead extraction, Firecrawl website scraping, and a provider-neutral news signal contract
 
 `package.json` and `package-lock.json` are the dependency source of truth.
@@ -37,6 +37,12 @@ before exercising Supabase or database-backed paths:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 DATABASE_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres?sslmode=require
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your-google-ai-studio-key
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_SEARCH_ENABLED=1
+# Keep 0 for a free-tier Gemini project; private contact data falls back to Claude.
+GEMINI_ALLOW_PRIVATE_DATA=0
 CLAUDE_MCP_ENDPOINT=http://localhost:8787/mcp/tools
 CLAUDE_MCP_AUTH_TOKEN=optional-bearer-token
 APOLLO_API_KEY=your-apollo-master-api-key
@@ -301,11 +307,13 @@ Business logic depends only on `IAIProvider`, whose typed operations are:
 - `summarizeText()`
 - `generateDraft()`
 
-`createAIProvider()` is the composition root. `ClaudeMCPProvider` is the first
-adapter and receives a `ClaudeMCPTransport`; it does not instantiate or couple
-features to a specific MCP SDK. The transport must return the documented
-adapter envelopes (`entities` or `text`, with optional model and token usage),
-and the provider validates every response before returning it.
+`createAIProvider()` remains the composition root. `GeminiProvider` is the
+default direct API adapter when `GEMINI_API_KEY` is configured; it uses
+`gemini-2.5-flash` by default, supports Zod-backed structured output, and can
+run a bounded Google Search grounding pass for public research. `ClaudeMCPProvider`
+is the fallback adapter and receives a `ClaudeMCPTransport`; it does not
+instantiate or couple features to a specific MCP SDK. Both adapters validate
+provider responses before returning them.
 
 ```ts
 const provider = createAIProvider({
@@ -331,8 +339,17 @@ forms, CSV import, Quick Add Domain ingestion, detail dialogs, audit history,
 and workspace preferences.
 The UI is empty-state safe when no authenticated organization profile exists;
 mutations and AI actions return actionable errors until the user is signed in.
-Set `CLAUDE_MCP_ENDPOINT` to an HTTP bridge that accepts `{ name, arguments }`
-and returns the response envelope expected by `ClaudeMCPProvider`.
+Set `GEMINI_API_KEY` to a server-only Google AI Studio key to use Gemini by
+default. `GEMINI_SEARCH_ENABLED=1` enables the public research grounding pass;
+the app keeps structured extraction as a separate second pass for Gemini 2.5
+compatibility. Free-tier Gemini projects may use prompts for product
+improvement and human review, so `GEMINI_ALLOW_PRIVATE_DATA=0` routes private
+contact prompts to Claude instead. Paid Gemini projects can explicitly opt in
+with `GEMINI_ALLOW_PRIVATE_DATA=1` after reviewing Google's terms.
+
+Set `CLAUDE_MCP_ENDPOINT` to an HTTPS bridge that accepts `{ name, arguments }`
+and returns the response envelope expected by `ClaudeMCPProvider` when Claude
+fallback is desired. No Claude Desktop process is required by the application.
 
 Organization profiles carry explicit `owner`, `admin`, or `member` roles. All
 members can work leads; only owners and admins can change workspace defaults or
@@ -398,6 +415,27 @@ the same durable workflow manually. A later iteration can add organization-
 local time zones and alternate news adapters without changing the signal
 contract.
 
+### AI provider policy and cost
+
+Gemini 2.5 Flash is the default because Google documents free input/output
+tiers, structured output, and a free Google Search grounding allowance shared
+by Flash and Flash-Lite. Quotas vary by project and are visible in Google AI
+Studio; they are not a production SLA. Free-tier content may be used to improve
+Google products, so the app treats contact enrichment as private and routes it
+to Claude unless `GEMINI_ALLOW_PRIVATE_DATA=1` is explicitly set for a reviewed
+paid project. Public news classification can use Gemini by default. See the
+[Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing), [billing and
+data policy](https://ai.google.dev/gemini-api/docs/billing), [Search grounding](https://ai.google.dev/gemini-api/docs/google-search),
+and [structured output](https://ai.google.dev/gemini-api/docs/structured-output)
+guides for current limits.
+
+GDELT and publisher RSS remain the primary zero-cost discovery sources. Gemini
+Search is supplemental and budgeted; it is not used as a replacement for
+source URLs, ranking, or deduplication. Groq Compound and OpenRouter free
+models were reviewed as alternatives, but their free limits, provider
+availability, and search/citation guarantees are less predictable for the
+default path. They can be added later behind the same `IAIProvider` contract.
+
 ### External production gates
 
 The repository contains deployable code, but autonomous production use requires
@@ -408,8 +446,13 @@ environment:
   the current free-plan endpoint can reject ingestion before any contacts
   exist, while bulk enrichment may consume credits per person.
 - Firecrawl must have a production key and an allowed website-scrape budget.
-- Claude MCP must be deployed behind an HTTPS endpoint, with
-  `CLAUDE_MCP_AUTH_TOKEN` set when the bridge requires bearer authentication.
+- Gemini should be configured with a Google AI Studio API key. Free-tier
+  projects are suitable for public research/classification but have variable
+  quotas and Google's product-improvement data policy; use a paid project or
+  keep private-data access disabled for contact enrichment.
+- Claude MCP is optional fallback infrastructure. If enabled, deploy it behind
+  an HTTPS endpoint, with `CLAUDE_MCP_AUTH_TOKEN` set when the bridge requires
+  bearer authentication.
 - Inngest must register the deployed `/api/inngest` URL and sign webhook
   requests with `INNGEST_SIGNING_KEY`; unsigned requests are rejected.
 - Supabase Auth must allow the deployed `/auth/callback` and reset-password
@@ -422,7 +465,7 @@ environment:
   server-only and rotate it deliberately because rotation invalidates older
   action references. Generate a suitable value with `openssl rand -base64 32`.
 - Run an authenticated two-organization CRUD/authorization test and one real
-  Apollo → Firecrawl → MCP ingestion before enabling provider-consuming CI.
+  Apollo → Firecrawl → Gemini ingestion before enabling provider-consuming CI.
 - Run `E2E_TEST_EMAIL=<staging-user> E2E_TEST_PASSWORD=<staging-password> npm run e2e`
   against staging and confirm the authenticated workbench flow passes without
   using production data.

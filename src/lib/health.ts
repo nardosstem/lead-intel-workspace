@@ -14,6 +14,7 @@ export type HealthSnapshot = Readonly<{
     supabase: HealthDependencyState;
     apollo: HealthDependencyState;
     firecrawl: HealthDependencyState;
+    gemini: HealthDependencyState;
     claudeMcp: HealthDependencyState;
     inngest: HealthDependencyState;
     invitations: HealthDependencyState;
@@ -59,12 +60,24 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     supabase: supabaseState(),
     apollo: configured(process.env.APOLLO_API_KEY),
     firecrawl: configured(process.env.FIRECRAWL_API_KEY),
+    gemini: configured(process.env.GEMINI_API_KEY),
     claudeMcp: configured(process.env.CLAUDE_MCP_ENDPOINT),
     inngest: inngestState(),
     invitations: configured(process.env.SUPABASE_SERVICE_ROLE_KEY),
     serverActions: configured(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY),
   } as const;
-  const hasMissingDependency = Object.values(checks).some((state) => state === "missing");
+  const aiConfigured = checks.gemini === "configured" || checks.claudeMcp === "configured";
+  const requiredChecks = [
+    checks.supabase,
+    checks.apollo,
+    checks.firecrawl,
+    checks.inngest,
+    checks.serverActions,
+  ];
+  const hasMissingDependency =
+    !aiConfigured ||
+    requiredChecks.some((state) => state === "missing") ||
+    checks.invitations === "missing";
 
   return {
     status: database === "error" ? "unhealthy" : hasMissingDependency ? "degraded" : "ok",

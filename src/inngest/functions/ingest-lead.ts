@@ -552,6 +552,7 @@ export const ingestLead = inngest.createFunction(
               organizationId: context.organizationId,
               actorUserId: context.userId,
               traceId: `lead-ingest:${context.organizationId}:${event.data.domain}`,
+              dataClassification: "private",
             },
           });
 

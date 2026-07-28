@@ -17,6 +17,7 @@ import { getHealthSnapshot } from "./health";
 const configuredEnvironment = {
   APOLLO_API_KEY: "apollo-key",
   FIRECRAWL_API_KEY: "firecrawl-key",
+  GEMINI_API_KEY: "gemini-key",
   CLAUDE_MCP_ENDPOINT: "https://mcp.example.com/tools",
   INNGEST_EVENT_KEY: "event-key",
   INNGEST_SIGNING_KEY: "signing-key",
@@ -48,6 +49,7 @@ describe("health readiness snapshot", () => {
         supabase: "configured",
         apollo: "configured",
         firecrawl: "configured",
+        gemini: "configured",
         claudeMcp: "configured",
         inngest: "configured",
         invitations: "configured",
