@@ -77,6 +77,7 @@ Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 | `npm run lint` | Run ESLint with zero warnings allowed |
 | `npm run typecheck` | Run strict TypeScript checks |
 | `npm run check` | Run lint and type checks |
+| `npm run audit:production` | Fail on high/critical production dependency vulnerabilities |
 | `npm run db:generate` | Generate SQL after a Drizzle schema change |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Inspect the configured database |
@@ -512,8 +513,8 @@ Then:
   audit records.
 - Apollo, Firecrawl, and Inngest credentials are server-only and never use
   `NEXT_PUBLIC_` names.
-- `package.json` overrides Next.js's nested PostCSS dependency to the patched
-  8.5.19 release; re-check this override when upgrading Next.js.
+- `package.json` upgrades Next.js and overrides vulnerable transitive packages;
+  re-check the overrides whenever upgrading Next.js or its SDK dependencies.
 - The deployable audit gate is `npm audit --omit=dev`; a separate moderate
   development-only esbuild advisory remains transitive through Drizzle Kit
   0.31.10, whose automated fix is a breaking downgrade.

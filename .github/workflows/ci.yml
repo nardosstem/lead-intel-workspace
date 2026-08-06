@@ -37,6 +37,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run audit:production
       - run: npm run test:coverage
       - run: npm run check
       - run: npm run db:ci:prepare
