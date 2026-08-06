@@ -122,6 +122,17 @@ describe("triggerDomainIngestion", () => {
     });
   });
 
+  it("assigns a distinct reservation key to each separate manual news scan", async () => {
+    await expect(triggerNewsScan()).resolves.toMatchObject({ ok: true });
+    await expect(triggerNewsScan()).resolves.toMatchObject({ ok: true });
+
+    const firstRunId = newsCreateEventMock.mock.calls[0]?.[0]?.runId;
+    const secondRunId = newsCreateEventMock.mock.calls[1]?.[0]?.runId;
+    expect(firstRunId).toEqual(expect.any(String));
+    expect(secondRunId).toEqual(expect.any(String));
+    expect(firstRunId).not.toBe(secondRunId);
+  });
+
   it("does not enqueue a news scan while the explicit opt-in is disabled", async () => {
     vi.stubEnv("NEWS_SCAN_ENABLED", "0");
 
