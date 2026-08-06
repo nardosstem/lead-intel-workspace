@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+import { NonRetriableError } from "inngest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const testState = vi.hoisted(() => ({
@@ -31,10 +32,12 @@ import {
   createContact,
   deleteCompany,
   getLeads,
+  setCompanyMonitoring,
   updateCompany,
   updateContact,
   updatePipeline,
 } from "./actions";
+import { __newsScanInternals } from "@/inngest/functions/scan-news";
 
 const databaseUrl = process.env.DATABASE_URL;
 const integrationEnabled = process.env.LEAD_INTEL_INTEGRATION_TEST === "1";
@@ -153,6 +156,11 @@ describe("authenticated lead Server Actions", () => {
       website: "https://integration-a.example.com",
       industry: "B2B SaaS",
     }));
+    expect((await getLeads()).monitoringByCompanyId[companyA.id]).toBeUndefined();
+    expectSuccess(await setCompanyMonitoring({ companyId: companyA.id, enabled: true }));
+    await expect(
+      __newsScanInternals.runOrganizationScan(ids.organizationA, ids.userB, randomUUID()),
+    ).rejects.toBeInstanceOf(NonRetriableError);
     const duplicate = await createCompany({
       name: "Duplicate Company A",
       website: "https://www.integration-a.example.com",
@@ -170,6 +178,13 @@ describe("authenticated lead Server Actions", () => {
     expect(pipelineA).toBeDefined();
     expect(snapshotA.companies.map((company) => company.id)).toEqual([companyA.id]);
     expect(snapshotA.contacts.map((contact) => contact.id)).toEqual([contactA.id]);
+    expect(snapshotA.monitoringByCompanyId[companyA.id]).toMatchObject({
+      enabled: true,
+      scanFrequencyDays: 7,
+      lastScannedAt: null,
+    });
+    expectSuccess(await setCompanyMonitoring({ companyId: companyA.id, enabled: false }));
+    expect((await getLeads()).monitoringByCompanyId[companyA.id]?.enabled).toBe(false);
 
     for (let index = 1; index <= 10; index += 1) {
       expectSuccess(await createCompany({

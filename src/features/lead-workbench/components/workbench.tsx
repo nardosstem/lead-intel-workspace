@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -836,6 +836,11 @@ export function LeadWorkbench({
   const latestReadRef = useRef(0);
   const router = useRouter();
 
+  const openCompany = useCallback((company: CompanyRecord) => {
+    setSelectedCompany(company);
+    setRssFeedUrl(data.monitoringByCompanyId[company.id]?.rssFeedUrl ?? "");
+  }, [data.monitoringByCompanyId]);
+
   const hasActiveEnrichment = data.metrics.processingCompanies > 0;
   const companyOptions = useMemo(() => {
     const options = new Map(data.companyOptions.map((company) => [company.id, company]));
@@ -912,7 +917,7 @@ export function LeadWorkbench({
             size="sm"
             onClick={(event) => {
               event.stopPropagation();
-              setSelectedCompany(row);
+              openCompany(row);
             }}
           >
             View <ChevronRight className="size-3.5" aria-hidden="true" />
@@ -920,7 +925,7 @@ export function LeadWorkbench({
         ),
       },
     ],
-    [],
+    [openCompany],
   );
 
   const contactColumns = useMemo<LeadTableColumn<ContactRecord>[]>(
@@ -1164,6 +1169,19 @@ export function LeadWorkbench({
         return;
       }
       toast.success("Company added to weekly signal monitoring");
+      refresh();
+    });
+  }
+
+  function pauseCompanyMonitoring(company: CompanyRecord) {
+    startRefresh(async () => {
+      const result = await setCompanyMonitoring({ companyId: company.id, enabled: false });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Company removed from weekly signal monitoring");
+      refresh();
     });
   }
 
@@ -1179,6 +1197,7 @@ export function LeadWorkbench({
         return;
       }
       toast.success("Monitoring settings saved");
+      refresh();
     });
   }
 
@@ -1321,7 +1340,7 @@ export function LeadWorkbench({
               columns={companyColumns}
               filters={companyFilters}
               searchPlaceholder="Search companies…"
-              onSelect={setSelectedCompany}
+              onSelect={openCompany}
               pagination={data.pagination.companies}
               onQueryChange={changeCompanyQuery}
               isLoading={isRefreshing}
@@ -1429,16 +1448,29 @@ export function LeadWorkbench({
               </div>
               <SignalPanel
                 signals={data.signalsByCompanyId[selectedCompany.id] ?? signalsByCompanyId[selectedCompany.id] ?? []}
+                lastScannedAt={data.monitoringByCompanyId[selectedCompany.id]?.lastScannedAt}
                 onStatusChange={changeSignalStatus}
               />
               <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">Weekly signal monitoring</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Track public AI, hiring, partnership, failure, and automation signals for this company.</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {data.monitoringByCompanyId[selectedCompany.id]?.enabled
+                      ? "Monitoring is enabled for this company."
+                      : "Monitoring is paused for this company."} Track public AI, hiring, partnership, failure, and automation signals.
+                  </p>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => monitorCompany(selectedCompany)} disabled={isRefreshing}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => data.monitoringByCompanyId[selectedCompany.id]?.enabled
+                    ? pauseCompanyMonitoring(selectedCompany)
+                    : monitorCompany(selectedCompany)}
+                  disabled={isRefreshing}
+                >
                   <Rss className="size-4" aria-hidden="true" />
-                  Monitor company
+                  {data.monitoringByCompanyId[selectedCompany.id]?.enabled ? "Pause monitoring" : "Monitor company"}
                 </Button>
                 <div className="flex w-full flex-wrap items-center gap-2 pt-2">
                   <Input

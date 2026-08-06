@@ -16,7 +16,6 @@ import {
   auditLogs,
   companies,
   contacts,
-  monitoringTargets,
   organizations,
   pipeline,
   users,
@@ -76,7 +75,7 @@ export function toWorkflowError(error: unknown): unknown {
 
   if (
     error instanceof AIProviderError &&
-    (/not configured|invalid JSON/i.test(error.message) ||
+    (/not configured|invalid JSON|data policy|private workspace data/i.test(error.message) ||
       (/HTTP 4\d\d/i.test(error.message) && !/HTTP 429/i.test(error.message)))
   ) {
     return new NonRetriableError("The configured AI provider cannot complete this enrichment request.", { cause: error });
@@ -215,16 +214,6 @@ async function initializeIngestion(
         ),
       })
       .onConflictDoNothing({ target: pipeline.companyId });
-
-    await tx
-      .insert(monitoringTargets)
-      .values({
-        organizationId: context.organizationId,
-        companyId,
-        enabled: true,
-        nextScanAt: null,
-      })
-      .onConflictDoNothing({ target: [monitoringTargets.organizationId, monitoringTargets.companyId] });
 
     return companyId;
   }, { allowInactiveActor: true });

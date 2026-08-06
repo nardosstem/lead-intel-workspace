@@ -134,29 +134,4 @@ export async function reserveOrganizationUsage(
   return { usageDate, count: currentCount + 1, limit };
 }
 
-/** Read-only preflight used to give foreground actions an immediate response. */
-export async function hasOrganizationUsageCapacity(
-  db: Pick<Database, "select">,
-  input: Readonly<{
-    organizationId: string;
-    kind: OrganizationUsageKind;
-    now?: Date;
-  }>,
-): Promise<boolean> {
-  const usageDate = usageDateKey(input.now);
-  const limit = organizationUsageLimit(input.kind);
-  const rows = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(organizationUsage)
-    .where(
-      and(
-        eq(organizationUsage.organizationId, input.organizationId),
-        eq(organizationUsage.usageDate, usageDate),
-        eq(organizationUsage.kind, input.kind),
-      ),
-    )
-    .limit(1);
-  return Number(rows[0]?.count ?? 0) < limit;
-}
-
 export const __usageInternals = { positiveLimit, DEFAULT_LIMITS, ENV_KEYS };

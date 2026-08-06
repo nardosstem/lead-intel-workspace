@@ -409,7 +409,10 @@ items, signal records, scan history, and a provider-neutral `LeadSignal`
 presentation contract. Company detail views show evidence, source links,
 workflow and decision-maker mappings, with reviewed/dismissed status actions.
 Dashboard users can queue an immediate scan or enable weekly monitoring for a
-company; RSS feeds are optional per target.
+company; RSS feeds are optional per target. New companies are not enrolled
+until a user selects `Monitor company`, which keeps provider usage and source
+terms under explicit workspace control. Existing monitoring target state is
+preserved across enrichment retries.
 
 The approved monitoring design is:
 

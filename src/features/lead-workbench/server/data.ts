@@ -23,6 +23,7 @@ import {
   getDatabase,
   organizations,
   organizationInvitations,
+  monitoringTargets,
   users,
   pipeline,
 } from "@/lib/db";
@@ -267,6 +268,7 @@ export async function getWorkbenchSnapshot(
     duePipelineRows,
     auditRows,
     signalRows,
+    monitoringRows,
   ] = await Promise.all([
     db
       .select({
@@ -467,6 +469,18 @@ export async function getWorkbenchSnapshot(
       .where(eq(leadSignals.organizationId, context.organizationId))
       .orderBy(desc(leadSignals.createdAt))
       .limit(SIGNAL_HISTORY_LIMIT),
+    db
+      .select({
+        companyId: monitoringTargets.companyId,
+        enabled: monitoringTargets.enabled,
+        priority: monitoringTargets.priority,
+        scanFrequencyDays: monitoringTargets.scanFrequencyDays,
+        rssFeedUrl: monitoringTargets.rssFeedUrl,
+        lastScannedAt: monitoringTargets.lastScannedAt,
+        nextScanAt: monitoringTargets.nextScanAt,
+      })
+      .from(monitoringTargets)
+      .where(eq(monitoringTargets.organizationId, context.organizationId)),
   ]);
   const currentUserRole =
     memberRows.find((member) => member.id === context.userId)?.role ?? "member";
@@ -493,6 +507,19 @@ export async function getWorkbenchSnapshot(
     if (!signal) continue;
     (signalsByCompanyId[row.signal.companyId] ??= []).push(signal);
   }
+  const monitoringByCompanyId = Object.fromEntries(
+    monitoringRows.map((row) => [
+      row.companyId,
+      {
+        enabled: row.enabled,
+        priority: row.priority,
+        scanFrequencyDays: row.scanFrequencyDays,
+        rssFeedUrl: row.rssFeedUrl,
+        lastScannedAt: row.lastScannedAt?.toISOString() ?? null,
+        nextScanAt: row.nextScanAt?.toISOString() ?? null,
+      },
+    ]),
+  );
 
   return {
     settings: {
@@ -533,6 +560,7 @@ export async function getWorkbenchSnapshot(
     pipeline: pipelineRows.map(toPipelineRecord),
     auditLogs: auditRows.map(toAuditRecord),
     companyOptions,
+    monitoringByCompanyId,
     metrics: {
       totalCompanies: countValue(totalCompanyRows[0]),
       totalContacts: countValue(totalContactRows[0]),

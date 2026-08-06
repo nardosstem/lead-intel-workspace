@@ -116,6 +116,15 @@ export type CompanyOption = Readonly<{
   name: string;
 }>;
 
+export type CompanyMonitoringRecord = Readonly<{
+  enabled: boolean;
+  priority: number;
+  scanFrequencyDays: number;
+  rssFeedUrl: string | null;
+  lastScannedAt: string | null;
+  nextScanAt: string | null;
+}>;
+
 export type WorkbenchMetrics = Readonly<{
   totalCompanies: number;
   totalContacts: number;
@@ -139,6 +148,7 @@ export type WorkbenchSnapshot = {
   pipeline: PipelineRecord[];
   auditLogs: AuditRecord[];
   companyOptions: CompanyOption[];
+  monitoringByCompanyId: Readonly<Record<string, CompanyMonitoringRecord>>;
   metrics: WorkbenchMetrics;
   signalsByCompanyId: Readonly<Record<string, import("./signal-types").LeadSignal[]>>;
   pagination: Readonly<{
@@ -180,6 +190,7 @@ export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
   pipeline: [],
   auditLogs: [],
   companyOptions: [],
+  monitoringByCompanyId: {},
   metrics: {
     totalCompanies: 0,
     totalContacts: 0,

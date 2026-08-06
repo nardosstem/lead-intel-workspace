@@ -32,6 +32,7 @@ describe("lead ingestion workflow error policy", () => {
     expect(toWorkflowError(new ApolloApiError("forbidden", 403))).toBeInstanceOf(NonRetriableError);
     expect(toWorkflowError(new AIProviderError("Claude MCP is not configured.", "claude-mcp"))).toBeInstanceOf(NonRetriableError);
     expect(toWorkflowError(new AIProviderError("Gemini API request failed (HTTP 400).", "gemini"))).toBeInstanceOf(NonRetriableError);
+    expect(toWorkflowError(new AIProviderError("Gemini free-tier data policy does not allow private workspace data.", "gemini"))).toBeInstanceOf(NonRetriableError);
     expect(toWorkflowError(new z.ZodError([]))).toBeInstanceOf(NonRetriableError);
   });
 

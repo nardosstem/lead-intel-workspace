@@ -628,13 +628,6 @@ export async function createCompany(
           ),
         });
 
-        await tx.insert(monitoringTargets).values({
-          organizationId: context.organizationId,
-          companyId: company.id,
-          enabled: true,
-          nextScanAt: null,
-        });
-
         return toCompanyRecord(company);
       }),
     };
@@ -1065,12 +1058,6 @@ export async function importCompaniesCsv(
               nextFollowUpAt: new Date(
                 Date.now() + (defaults?.followUpDays ?? 7) * 24 * 60 * 60 * 1000,
               ),
-            });
-            await savepoint.insert(monitoringTargets).values({
-              organizationId: context.organizationId,
-              companyId: company.id,
-              enabled: true,
-              nextScanAt: null,
             });
           });
           count += 1;

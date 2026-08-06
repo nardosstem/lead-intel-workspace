@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { and, asc, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
-import { cron } from "inngest";
+import { cron, NonRetriableError } from "inngest";
 
 import {
   companyNewsItems,
@@ -12,6 +12,7 @@ import {
   monitoringTargets,
   newsItems,
   signalScans,
+  users,
   type Database,
   getDatabase,
 } from "@/lib/db";
@@ -338,6 +339,7 @@ async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<Sca
       matchedSignalType: scored.candidate.matchedSignalType,
       context: {
         organizationId: target.organizationId,
+        ...(actorUserId ? { actorUserId } : {}),
         traceId: `news-scan:${target.organizationId}:${target.companyId}`,
         dataClassification: "public",
       },
@@ -393,6 +395,23 @@ async function runOrganizationScan(
   const scan = await withSystemTenantContext(
     organizationId,
     async (tx) => {
+      if (actorUserId) {
+        const actor = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            and(
+              eq(users.id, actorUserId),
+              eq(users.organizationId, organizationId),
+              eq(users.isActive, true),
+            ),
+          )
+          .limit(1);
+        if (!actor[0]) {
+          throw new NonRetriableError("News scan actor is not an active member of the target organization.");
+        }
+      }
+
       try {
         await reserveOrganizationUsage(tx, {
           organizationId,
@@ -476,6 +495,7 @@ export const scanNewsRequested = inngest.createFunction(
   {
     id: "scan-news-requested",
     name: "Scan monitored companies on demand",
+    idempotency: "event.data.runId",
     triggers: [{ event: newsScanRequested }],
     concurrency: { limit: 1, key: "event.data.organizationId", scope: "fn" },
   },

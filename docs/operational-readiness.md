@@ -4,11 +4,14 @@
 
 Launch a **controlled internal pilot**: one approved workspace can submit a
 public company domain, receive a durable Apollo → Firecrawl → AI enrichment,
-review the generated contacts and outreach draft, and retry a failed run.
+review the generated contacts, outreach draft, and optional news signals, and
+retry a failed run. News monitoring is implemented but remains disabled until
+provider budgets and publisher terms are approved.
 
 The pilot deliberately excludes sending email, CRM synchronization, billing,
-organization switching, and autonomous news monitoring. Generated copy is
-reviewed by a human before any external use.
+and organization switching. Autonomous news monitoring is available as an
+opt-in, budget-gated workflow, and generated copy is reviewed by a human
+before any external use.
 
 ## Launch criteria
 
@@ -22,6 +25,9 @@ The pilot is ready only when all of the following are true:
 - One approved public domain completes Apollo → Firecrawl → AI enrichment in
   staging; the resulting company, contacts, audit entry, and draft are visible
   in the workbench.
+- One monitored company completes a bounded GDELT/RSS → Firecrawl → signal
+  extraction scan in staging; the resulting evidence, workflow, decision-maker
+  mapping, and audit entries are visible in the workbench.
 - Provider failure, retry, and duplicate-submission behavior have been checked
   from Inngest and in the workbench.
 - `npm run test:coverage`, `npm run check`, `npm run build`, and
@@ -37,7 +43,7 @@ The pilot is ready only when all of the following are true:
 | Provider access | Obtain Apollo entitlement for `mixed_people/api_search`, Firecrawl production access, Gemini paid/private-data decision, and optional Claude fallback. | Founder / ops | Non-production keys stored in the secret manager; one successful staging run. |
 | Platform | Create separate staging and production projects; configure DNS/hosting, Supabase Auth redirects and mail, Inngest signing, secrets, backups, and rollback. | Engineering / platform | Staging health is `ok`; deployment and rollback are documented. |
 | Security & privacy | Remove production audit findings; review the repository CSP/HSTS baseline; confirm provider terms, data retention/deletion process, access policy, and secret rotation procedure. | Engineering + owner | Release audit passes and policies are approved. |
-| Reliability & cost | Add error alerting, workflow-failure alerting, provider usage/spend visibility beyond the daily ledger, and monthly budget ceilings. Repository kill switches and daily limits are already present. | Engineering / ops | A forced failed run raises an alert; a limit prevents an additional run. |
+| Reliability & cost | Add error alerting, workflow-failure alerting, provider usage/spend visibility beyond the daily ledger, and monthly budget ceilings. Repository kill switches, bounded news scans, and daily limits are already present. | Engineering / ops | A forced failed run raises an alert; a limit prevents an additional run. |
 | Staging acceptance | Test two-organization isolation, authentication mail, provider success/failure/retry, and protected browser flow. | Engineering + pilot owner | Dated acceptance record with results and exceptions. |
 
 ## Sequenced backlog
@@ -85,8 +91,9 @@ The pilot is ready only when all of the following are true:
 
 1. Add CRM sync or outbound-email delivery only with explicit review,
    consent/unsubscribe handling, and engagement tracking requirements.
-2. Enable autonomous news monitoring only after per-run budgets, publisher
-   terms, and alerting are accepted.
+2. Raise or enable autonomous news monitoring only after per-run budgets,
+   publisher terms, and alerting are accepted. The weekly workflow and
+   deterministic fallback are already implemented behind `NEWS_SCAN_ENABLED`.
 3. Add organization switching and billing only after the tenant and support
    models are designed.
 
@@ -116,7 +123,9 @@ owner:
   audit:production` is clean and enforced by CI.
 - The repository has CI and a release runbook but no deployment
   configuration/infrastructure as code, external error tracking, or provider
-  spend telemetry beyond the tenant usage budgets.
+  spend telemetry beyond the tenant usage budgets. News monitoring is
+  repository-complete but opt-in at runtime and requires staging acceptance
+  before production enablement.
 - Health checks database connectivity and configuration presence; it does not
   verify external providers or create operational alerts.
 

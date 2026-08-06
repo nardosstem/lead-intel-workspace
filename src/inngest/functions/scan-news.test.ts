@@ -17,6 +17,7 @@ describe("news scan workflows", () => {
       key: "event.data.organizationId",
       scope: "fn",
     });
+    expect(scanNewsRequested.opts.idempotency).toBe("event.data.runId");
   });
 
   it("validates manual scan events at the event boundary", async () => {
