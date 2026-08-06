@@ -379,7 +379,11 @@ async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<Sca
   return { candidatesFound: candidates.length, articlesFetched, signalsExtracted, warnings };
 }
 
-async function runOrganizationScan(organizationId: string, actorUserId?: string): Promise<ScanCounts & { warning?: string }> {
+async function runOrganizationScan(
+  organizationId: string,
+  actorUserId: string | undefined,
+  reservationKey: string,
+): Promise<ScanCounts & { warning?: string }> {
   const targets = await loadDueTargets(organizationId);
   if (targets.length === 0) {
     return { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
@@ -393,7 +397,7 @@ async function runOrganizationScan(organizationId: string, actorUserId?: string)
         await reserveOrganizationUsage(tx, {
           organizationId,
           kind: "news_scan",
-          reservationKey: `${organizationId}:${usageDateKey(now)}`,
+          reservationKey,
           now,
         });
       } catch (error) {
@@ -454,12 +458,15 @@ export const scanNewsScheduled = inngest.createFunction(
   },
   async ({ step }) => {
     if (!scanEnabled()) return { skipped: true, reason: "NEWS_SCAN_ENABLED=0" };
+    const scanDate = usageDateKey();
     const organizationIds = await step.run("load-due-organizations", async () =>
       [...new Set((await loadDueTargets()).map((target) => target.organizationId))],
     );
     const results = [];
     for (const organizationId of organizationIds) {
-      results.push(await step.run(`scan-organization-${organizationId}`, () => runOrganizationScan(organizationId)));
+      results.push(await step.run(`scan-organization-${organizationId}`, () =>
+        runOrganizationScan(organizationId, undefined, `scheduled:${organizationId}:${scanDate}`),
+      ));
     }
     return { organizations: organizationIds.length, results };
   },
@@ -474,7 +481,9 @@ export const scanNewsRequested = inngest.createFunction(
   },
   async ({ event, step }) => {
     if (!scanEnabled()) return { skipped: true, reason: "NEWS_SCAN_ENABLED=0" };
-    return step.run("scan-organization", () => runOrganizationScan(event.data.organizationId, event.data.actorUserId));
+    return step.run("scan-organization", () =>
+      runOrganizationScan(event.data.organizationId, event.data.actorUserId, event.data.runId),
+    );
   },
 );
 

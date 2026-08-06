@@ -81,6 +81,7 @@ export async function triggerNewsScan(): Promise<ActionResult<{ message: string 
     const event = newsScanRequested.create({
       organizationId: context.organizationId,
       actorUserId: context.userId,
+      runId: crypto.randomUUID(),
     });
     await event.validate();
     await inngest.send({ name: event.name, data: event.data });

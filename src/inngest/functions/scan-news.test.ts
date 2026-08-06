@@ -23,12 +23,14 @@ describe("news scan workflows", () => {
     const event = newsScanRequested.create({
       organizationId: "00000000-0000-4000-8000-000000000001",
       actorUserId: "00000000-0000-4000-8000-000000000002",
+      runId: "00000000-0000-4000-8000-000000000003",
     });
 
     await expect(event.validate()).resolves.toBeUndefined();
     const invalidEvent = newsScanRequested.create({
       organizationId: "not-a-uuid",
       actorUserId: "also-not-a-uuid",
+      runId: "still-not-a-uuid",
     });
     await expect(invalidEvent.validate()).rejects.toThrow();
   });

@@ -797,7 +797,7 @@ function SettingsView({
             ["Dark mode", "Use the theme control in the global header."],
             ["Audit history", "Company, contact, and pipeline mutations are recorded by database triggers."],
             ["Organization scope", "Every query and mutation is constrained to the authenticated organization."],
-            ["AI provider", "Claude MCP actions are available when the deployment is configured."],
+            ["AI provider", "Gemini is the default provider for public research; Claude MCP is an optional private-data fallback."],
           ].map(([label, description]) => (
             <div key={label} className="flex gap-3 rounded-lg border p-3">
               <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />

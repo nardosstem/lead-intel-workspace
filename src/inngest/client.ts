@@ -23,6 +23,8 @@ export const leadIngestRequested = eventType("lead.ingest.requested", {
 export const newsScanRequestedDataSchema = z.object({
   organizationId: z.uuid(),
   actorUserId: z.uuid(),
+  /** Stable across Inngest retries, unique for each user-requested scan. */
+  runId: z.uuid(),
 });
 
 export type NewsScanRequestedData = z.infer<typeof newsScanRequestedDataSchema>;

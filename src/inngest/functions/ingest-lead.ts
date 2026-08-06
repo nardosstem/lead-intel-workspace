@@ -79,7 +79,7 @@ export function toWorkflowError(error: unknown): unknown {
     (/not configured|invalid JSON/i.test(error.message) ||
       (/HTTP 4\d\d/i.test(error.message) && !/HTTP 429/i.test(error.message)))
   ) {
-    return new NonRetriableError("Claude MCP cannot complete this enrichment request.", { cause: error });
+    return new NonRetriableError("The configured AI provider cannot complete this enrichment request.", { cause: error });
   }
 
   if (error instanceof OrganizationUsageLimitError) {
