@@ -20,7 +20,11 @@ vi.mock("@/lib/auth/user", () => ({
   })),
 }));
 
-import { closeDatabaseConnection } from "@/lib/db";
+import { closeDatabaseConnection, getDatabase } from "@/lib/db";
+import {
+  OrganizationUsageLimitError,
+  reserveOrganizationUsage,
+} from "@/lib/db/usage";
 import type { ActionResult } from "../types";
 import {
   createCompany,
@@ -103,10 +107,47 @@ describe("authenticated lead Server Actions", () => {
     `;
     await sql.end();
     await closeDatabaseConnection();
+    vi.unstubAllEnvs();
   });
 
   it("keeps CRUD, pipeline records, duplicate domains, and audit rows tenant-scoped", async () => {
     testState.currentUserId = ids.userA;
+
+    const firstReservation = await getDatabase().transaction((tx) =>
+      reserveOrganizationUsage(tx, {
+        organizationId: ids.organizationA,
+        kind: "domain_ingestion",
+        reservationKey: "integration-idempotency-key",
+      }),
+    );
+    const repeatedReservation = await getDatabase().transaction((tx) =>
+      reserveOrganizationUsage(tx, {
+        organizationId: ids.organizationA,
+        kind: "domain_ingestion",
+        reservationKey: "integration-idempotency-key",
+      }),
+    );
+    expect(firstReservation.count).toBe(1);
+    expect(repeatedReservation.count).toBe(1);
+
+    vi.stubEnv("NEWS_SCAN_DAILY_LIMIT", "1");
+    await getDatabase().transaction((tx) =>
+      reserveOrganizationUsage(tx, {
+        organizationId: ids.organizationA,
+        kind: "news_scan",
+        reservationKey: "integration-scan-key-1",
+      }),
+    );
+    await expect(
+      getDatabase().transaction((tx) =>
+        reserveOrganizationUsage(tx, {
+          organizationId: ids.organizationA,
+          kind: "news_scan",
+          reservationKey: "integration-scan-key-2",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(OrganizationUsageLimitError);
+
     const companyA = expectSuccess(await createCompany({
       name: "Integration Company A",
       website: "https://integration-a.example.com",
@@ -224,10 +265,12 @@ describe("authenticated lead Server Actions", () => {
       select
         (select count(*)::int from public.contacts where id = ${contactA.id}) as contacts,
         (select count(*)::int from public.pipeline where id = ${pipelineA!.id}) as pipeline,
-        (select count(*)::int from public.audit_logs where organization_id = ${ids.organizationA} and actor_user_id = ${ids.userA}) as audits
+        (select count(*)::int from public.audit_logs where organization_id = ${ids.organizationA} and actor_user_id = ${ids.userA}) as audits,
+        (select count(*)::int from public.audit_logs where organization_id = ${ids.organizationA} and entity_type = 'organization_usage') as usage_audits
     `;
     expect(dependentRows[0]?.contacts).toBe(0);
     expect(dependentRows[0]?.pipeline).toBe(0);
     expect(Number(dependentRows[0]?.audits ?? 0)).toBeGreaterThanOrEqual(5);
+    expect(Number(dependentRows[0]?.usage_audits ?? 0)).toBeGreaterThanOrEqual(2);
   });
 });

@@ -5,6 +5,10 @@ import { z } from "zod";
 import { inngest, leadIngestRequested, newsScanRequested } from "@/inngest/client";
 import { isPublicHostname } from "@/lib/domains";
 import { normalizeDomain } from "@/lib/apollo";
+import {
+  isLeadIngestionEnabled,
+  isNewsScanEnabled,
+} from "@/lib/runtime-controls";
 
 import { requireLeadContext } from "./server/context";
 import type { ActionResult } from "./types";
@@ -45,6 +49,9 @@ export async function triggerDomainIngestion(
   if (!isPublicHostname(normalizedDomain)) {
     return { ok: false, error: "Enter a valid domain such as stripe.com." };
   }
+  if (!isLeadIngestionEnabled()) {
+    return { ok: false, error: "Lead ingestion is temporarily disabled by workspace configuration." };
+  }
 
   try {
     const context = await requireLeadContext();
@@ -65,6 +72,10 @@ export async function triggerDomainIngestion(
 
 /** Queues an immediate scan of all enabled monitoring targets in this workspace. */
 export async function triggerNewsScan(): Promise<ActionResult<{ message: string }>> {
+  if (!isNewsScanEnabled()) {
+    return { ok: false, error: "News scanning is disabled. Set NEWS_SCAN_ENABLED=1 to enable it." };
+  }
+
   try {
     const context = await requireLeadContext();
     const event = newsScanRequested.create({

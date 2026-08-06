@@ -17,6 +17,12 @@ import {
 } from "@/lib/db";
 import { getAIProvider } from "@/lib/ai/server";
 import { getFirecrawlClient, type FirecrawlScrapeResult } from "@/lib/firecrawl";
+import { isAiActionsEnabled, isNewsScanEnabled } from "@/lib/runtime-controls";
+import {
+  OrganizationUsageLimitError,
+  reserveOrganizationUsage,
+  usageDateKey,
+} from "@/lib/db/usage";
 import {
   buildSignalQueries,
   canonicalizeNewsUrl,
@@ -67,7 +73,7 @@ function positiveInteger(value: string | undefined, fallback: number, maximum: n
 function scanEnabled(): boolean {
   // News discovery can consume provider/network budgets. Require an explicit
   // opt-in so an omitted environment variable never starts autonomous scans.
-  return process.env.NEWS_SCAN_ENABLED === "1";
+  return isNewsScanEnabled();
 }
 
 function maxCompanies(): number {
@@ -295,10 +301,14 @@ async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<Sca
   let articlesFetched = 0;
   let signalsExtracted = 0;
   let provider: ReturnType<typeof getAIProvider> | null = null;
-  try {
-    provider = getAIProvider();
-  } catch (error) {
-    warnings.push(`AI provider: ${safeError(error)}`);
+  if (isAiActionsEnabled()) {
+    try {
+      provider = getAIProvider();
+    } catch (error) {
+      warnings.push(`AI provider: ${safeError(error)}`);
+    }
+  } else {
+    warnings.push("AI actions are disabled; using deterministic signal extraction.");
   }
 
   for (const scored of ranked) {
@@ -371,16 +381,43 @@ async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<Sca
 
 async function runOrganizationScan(organizationId: string, actorUserId?: string): Promise<ScanCounts & { warning?: string }> {
   const targets = await loadDueTargets(organizationId);
+  if (targets.length === 0) {
+    return { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
+  }
+
+  const now = new Date();
   const scan = await withSystemTenantContext(
     organizationId,
-    async (tx) =>
-      (await tx
-        .insert(signalScans)
-        .values({ organizationId, status: "running", startedAt: new Date() })
-        .returning({ id: signalScans.id }))[0],
+    async (tx) => {
+      try {
+        await reserveOrganizationUsage(tx, {
+          organizationId,
+          kind: "news_scan",
+          reservationKey: `${organizationId}:${usageDateKey(now)}`,
+          now,
+        });
+      } catch (error) {
+        if (error instanceof OrganizationUsageLimitError) return null;
+        throw error;
+      }
+
+      return (
+        await tx
+          .insert(signalScans)
+          .values({ organizationId, status: "running", startedAt: now })
+          .returning({ id: signalScans.id })
+      )[0];
+    },
     actorUserId,
   );
-  if (!scan) throw new Error("Unable to create a signal scan record.");
+  if (!scan) {
+    return {
+      candidatesFound: 0,
+      articlesFetched: 0,
+      signalsExtracted: 0,
+      warning: "The organization news-scan daily limit has been reached.",
+    };
+  }
 
   const totals = { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
   const warnings: string[] = [];

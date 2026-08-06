@@ -68,3 +68,7 @@ metadata and excerpts are bounded at the application/schema boundary; full
 article bodies are intentionally not persisted. All five tables use the shared
 lead mutation trigger so discovery, classification, and scan lifecycle changes
 remain auditable.
+
+Migration `0016_*.sql` adds a tenant-scoped UTC usage ledger for domain
+ingestion, news scans, and AI actions. Reservation keys make retries
+idempotent; the ledger is also covered by the shared audit trigger.

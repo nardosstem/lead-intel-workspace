@@ -54,6 +54,11 @@ describe("health readiness snapshot", () => {
         inngest: "configured",
         invitations: "configured",
         serverActions: "configured",
+        controls: {
+          leadIngestion: "enabled",
+          aiActions: "enabled",
+          newsScan: "disabled",
+        },
       },
     });
     expect(databaseMock).toHaveBeenCalledOnce();

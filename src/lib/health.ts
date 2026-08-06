@@ -4,8 +4,14 @@ import { sql } from "drizzle-orm";
 
 import { getDatabase } from "@/lib/db";
 import { getPublicEnvironment } from "@/lib/public-env";
+import {
+  isAiActionsEnabled,
+  isLeadIngestionEnabled,
+  isNewsScanEnabled,
+} from "@/lib/runtime-controls";
 
 export type HealthDependencyState = "configured" | "missing";
+export type HealthControlState = "enabled" | "disabled";
 
 export type HealthSnapshot = Readonly<{
   status: "ok" | "degraded" | "unhealthy";
@@ -19,6 +25,11 @@ export type HealthSnapshot = Readonly<{
     inngest: HealthDependencyState;
     invitations: HealthDependencyState;
     serverActions: HealthDependencyState;
+    controls: Readonly<{
+      leadIngestion: HealthControlState;
+      aiActions: HealthControlState;
+      newsScan: HealthControlState;
+    }>;
   }>;
 }>;
 
@@ -65,6 +76,11 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     inngest: inngestState(),
     invitations: configured(process.env.SUPABASE_SERVICE_ROLE_KEY),
     serverActions: configured(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY),
+    controls: {
+      leadIngestion: isLeadIngestionEnabled() ? "enabled" : "disabled",
+      aiActions: isAiActionsEnabled() ? "enabled" : "disabled",
+      newsScan: isNewsScanEnabled() ? "enabled" : "disabled",
+    },
   } as const;
   const aiConfigured = checks.gemini === "configured" || checks.claudeMcp === "configured";
   const requiredChecks = [

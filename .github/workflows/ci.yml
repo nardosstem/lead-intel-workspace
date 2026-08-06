@@ -30,6 +30,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
       INNGEST_DEV: "1"
       LEAD_INTEL_INTEGRATION_TEST: "1"
+      E2E_REQUIRE_HEALTH: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

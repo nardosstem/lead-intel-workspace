@@ -36,8 +36,8 @@ The pilot is ready only when all of the following are true:
 | Product policy | Approve pilot users, target-title defaults, what counts as a usable lead, manual draft review, and a spend ceiling. | Founder / product owner | Written pilot brief and named workspace owner. |
 | Provider access | Obtain Apollo entitlement for `mixed_people/api_search`, Firecrawl production access, Gemini paid/private-data decision, and optional Claude fallback. | Founder / ops | Non-production keys stored in the secret manager; one successful staging run. |
 | Platform | Create separate staging and production projects; configure DNS/hosting, Supabase Auth redirects and mail, Inngest signing, secrets, backups, and rollback. | Engineering / platform | Staging health is `ok`; deployment and rollback are documented. |
-| Security & privacy | Remove production audit findings; set CSP; confirm provider terms, data retention/deletion process, access policy, and secret rotation procedure. | Engineering + owner | Release audit passes and policies are approved. |
-| Reliability & cost | Add error alerting, workflow-failure alerting, provider usage/spend visibility, per-organization limits, and an emergency disable switch. | Engineering / ops | A forced failed run raises an alert; a limit prevents an additional run. |
+| Security & privacy | Remove production audit findings; review the repository CSP/HSTS baseline; confirm provider terms, data retention/deletion process, access policy, and secret rotation procedure. | Engineering + owner | Release audit passes and policies are approved. |
+| Reliability & cost | Add error alerting, workflow-failure alerting, provider usage/spend visibility beyond the daily ledger, and monthly budget ceilings. Repository kill switches and daily limits are already present. | Engineering / ops | A forced failed run raises an alert; a limit prevents an additional run. |
 | Staging acceptance | Test two-organization isolation, authentication mail, provider success/failure/retry, and protected browser flow. | Engineering + pilot owner | Dated acceptance record with results and exceptions. |
 
 ## Sequenced backlog
@@ -58,19 +58,23 @@ The pilot is ready only when all of the following are true:
 
 1. ✅ Remediate production dependency audit findings and make the audit a
    release gate.
-2. Choose a hosting platform and create staging with a separate Supabase
+2. ✅ Add nonce-based CSP/HSTS response hardening and tenant-scoped daily
+   provider budgets with retry-safe reservations.
+3. Choose a hosting platform and create staging with a separate Supabase
    project and Inngest environment.
-3. Apply migrations; configure Supabase Auth redirect URLs, SMTP/templates,
+4. Apply migrations; configure Supabase Auth redirect URLs, SMTP/templates,
    and a stable `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`.
-4. Configure all server-side secrets, register `/api/inngest`, and verify
+5. Configure all server-side secrets, register `/api/inngest`, and verify
    signed workflow delivery.
-5. Add production error tracking/alerting and a short rollback/runbook.
-6. Run the acceptance checks in the launch criteria.
+6. Add production error tracking/alerting and a short rollback/runbook; retain
+   `LEAD_INGESTION_ENABLED=0` and `AI_ACTIONS_ENABLED=0` as emergency stops.
+7. Run the acceptance checks in the launch criteria.
 
 ### Milestone 2 — Limited beta hardening
 
-1. Persist provider usage and enforce per-user/per-organization enrichment
-   quotas, budget ceilings, and cooldowns.
+1. Add provider-specific usage/spend telemetry and enforce per-user limits,
+   monthly budget ceilings, and cooldowns beyond the repository's daily
+   organization ledger.
 2. Add a provider-health/synthetic-check process that does not unintentionally
    consume credits, plus alerts for rate-limit and failure spikes.
 3. Add automated authenticated staging smoke tests, including a safe provider
@@ -110,9 +114,9 @@ owner:
   and production build.
 - Production dependency audit remediation is complete: `npm run
   audit:production` is clean and enforced by CI.
-- The repository has CI but no deployment configuration, infrastructure as
-  code, error tracking, usage accounting, tenant cost limits, or release
-  runbook.
+- The repository has CI and a release runbook but no deployment
+  configuration/infrastructure as code, external error tracking, or provider
+  spend telemetry beyond the tenant usage budgets.
 - Health checks database connectivity and configuration presence; it does not
   verify external providers or create operational alerts.
 

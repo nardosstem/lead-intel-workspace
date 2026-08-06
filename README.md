@@ -43,6 +43,9 @@ GEMINI_MODEL=gemini-2.5-flash
 GEMINI_SEARCH_ENABLED=1
 # Keep 0 for a free-tier Gemini project; private contact data falls back to Claude.
 GEMINI_ALLOW_PRIVATE_DATA=0
+# Set either switch to 0 for an emergency provider-spend stop.
+LEAD_INGESTION_ENABLED=1
+AI_ACTIONS_ENABLED=1
 CLAUDE_MCP_ENDPOINT=http://localhost:8787/mcp/tools
 CLAUDE_MCP_AUTH_TOKEN=optional-bearer-token
 APOLLO_API_KEY=your-apollo-master-api-key
@@ -50,6 +53,10 @@ FIRECRAWL_API_KEY=fc-your-firecrawl-api-key
 INNGEST_EVENT_KEY=your-inngest-event-key
 INNGEST_SIGNING_KEY=signkey-prod-...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Conservative UTC per-organization provider budgets.
+LEAD_INGESTION_DAILY_LIMIT=25
+NEWS_SCAN_DAILY_LIMIT=1
+AI_ACTION_DAILY_LIMIT=100
 # Server-only; use a stable value across production instances.
 NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=base64-or-hex-deployment-secret
 # Server-only; required for organization invitations. Never expose this key to the browser.
@@ -60,12 +67,23 @@ SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 database liveness and reports non-secret dependency configuration—including the
 stable Server Actions key—as `ok`, `degraded`, or `unhealthy`; it deliberately
 does not probe provider networks or consume Apollo/Firecrawl/AI credits.
+The response also reports the current non-secret runtime control state for
+ingestion, AI actions, and news scanning.
 Configure the hosting platform to treat HTTP 503 (`unhealthy`) as a failed
 readiness check.
 
 Use a direct connection for migrations. At runtime, Supabase's session pooler
 is also supported because the Postgres.js client disables prepared statements.
 Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
+
+The application enforces these UTC, per-organization budgets for domain
+ingestion, news scans, and foreground AI actions. Reservations use idempotency
+keys, so Inngest retries do not spend the same budget twice. Increase limits
+only after provider terms and spend ceilings are approved.
+`LEAD_INGESTION_ENABLED=0` stops new Apollo workflows, while
+`AI_ACTIONS_ENABLED=0` stops AI enrichment and foreground AI actions; news
+scanning remains explicitly controlled by `NEWS_SCAN_ENABLED` and falls back to
+deterministic extraction when AI is disabled.
 
 ## Commands
 
@@ -479,7 +497,7 @@ environment:
   `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` must be fixed before using a multi-instance
   deployment.
 
-Latest local provider probes (2026-07-20) are intentionally recorded here:
+Historical local provider probes (2026-07-20) are intentionally recorded here:
 Firecrawl returned HTTP 200 for a public scrape, Apollo returned HTTP 403 for
 `mixed_people/api_search` with the configured key, and the configured Claude
 MCP localhost bridge was unreachable. The application therefore reports these
@@ -504,8 +522,11 @@ Then:
 - Secrets stay in ignored root `.env*` files; only `.env.example` is committed.
 - Server modules use `server-only` to prevent accidental client bundling.
 - Responses include baseline clickjacking, MIME-sniffing, referrer, and
-  browser-permission protections; add a deployment-specific CSP before loading
-  third-party scripts or embedding the app.
+  browser-permission protections. Matched application pages also receive a
+  per-request nonce-based CSP; review any future third-party script or frame
+  before allowing it in `src/lib/security/csp.ts`.
+- Production responses add HSTS; do not terminate TLS before the hosting
+  platform unless the proxy preserves the original HTTPS boundary.
 - Public database tables start with RLS enabled and no allow policies.
 - Supabase user identity is server verified; session presence alone is not
   authorization.

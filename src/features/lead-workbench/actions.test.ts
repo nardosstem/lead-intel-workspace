@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createEventMock = vi.hoisted(() =>
@@ -49,7 +49,10 @@ import {
 } from "./server/actions";
 
 describe("triggerDomainIngestion", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
+    vi.stubEnv("NEWS_SCAN_ENABLED", "1");
     sendMock.mockClear();
     createEventMock.mockClear();
     contextMock.mockClear();
@@ -86,6 +89,19 @@ describe("triggerDomainIngestion", () => {
     });
   });
 
+  it("honors the emergency ingestion kill switch before dispatching", async () => {
+    vi.stubEnv("LEAD_INGESTION_ENABLED", "0");
+
+    const result = await triggerDomainIngestion("acme.com");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Lead ingestion is temporarily disabled by workspace configuration.",
+    });
+    expect(contextMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
   it("dispatches an organization-scoped background news scan", async () => {
     const result = await triggerNewsScan();
 
@@ -103,6 +119,19 @@ describe("triggerDomainIngestion", () => {
         organizationId: "10000000-0000-4000-8000-000000000001",
       }),
     });
+  });
+
+  it("does not enqueue a news scan while the explicit opt-in is disabled", async () => {
+    vi.stubEnv("NEWS_SCAN_ENABLED", "0");
+
+    const result = await triggerNewsScan();
+
+    expect(result).toEqual({
+      ok: false,
+      error: "News scanning is disabled. Set NEWS_SCAN_ENABLED=1 to enable it.",
+    });
+    expect(contextMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("returns a useful parse error for malformed CSV before opening a database transaction", async () => {

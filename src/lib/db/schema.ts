@@ -1,6 +1,7 @@
 import {
   check,
   boolean,
+  date,
   foreignKey,
   integer,
   index,
@@ -60,6 +61,11 @@ export const signalScanStatusEnum = pgEnum("signal_scan_status", [
   "completed",
   "failed",
 ] as const);
+export const organizationUsageKindEnum = pgEnum("organization_usage_kind", [
+  "domain_ingestion",
+  "news_scan",
+  "ai_action",
+] as const);
 
 export const organizations = pgTable(
   "organizations",
@@ -87,6 +93,40 @@ export const organizations = pgTable(
       sql`${table.defaultFollowUpDays} >= 1 AND ${table.defaultFollowUpDays} <= 90`,
     ),
     uniqueIndex("organizations_slug_uidx").on(table.slug),
+  ],
+).enableRLS();
+
+/** Daily, tenant-scoped provider budget reservations. */
+export const organizationUsage = pgTable(
+  "organization_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    usageDate: date("usage_date", { mode: "string" }).notNull(),
+    kind: organizationUsageKindEnum("kind").notNull(),
+    reservationKey: varchar("reservation_key", { length: 160 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("organization_usage_date_kind_key_uidx").on(
+      table.organizationId,
+      table.usageDate,
+      table.kind,
+      table.reservationKey,
+    ),
+    index("organization_usage_organization_date_kind_idx").on(
+      table.organizationId,
+      table.usageDate,
+      table.kind,
+    ),
   ],
 ).enableRLS();
 
@@ -624,6 +664,9 @@ export const signalScans = pgTable(
 
 export type Organization = typeof organizations.$inferSelect;
 export type NewOrganization = typeof organizations.$inferInsert;
+export type OrganizationUsage = typeof organizationUsage.$inferSelect;
+export type NewOrganizationUsage = typeof organizationUsage.$inferInsert;
+export type OrganizationUsageKind = (typeof organizationUsageKindEnum.enumValues)[number];
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type OrganizationRole = (typeof organizationRoleEnum.enumValues)[number];

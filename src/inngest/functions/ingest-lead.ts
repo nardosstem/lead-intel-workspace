@@ -22,6 +22,11 @@ import {
   users,
 } from "@/lib/db";
 import { scrapeDomain, type FirecrawlScrapeResult } from "@/lib/firecrawl";
+import { isAiActionsEnabled, isLeadIngestionEnabled } from "@/lib/runtime-controls";
+import {
+  OrganizationUsageLimitError,
+  reserveOrganizationUsage,
+} from "@/lib/db/usage";
 
 import {
   withLeadMutationContext,
@@ -77,6 +82,10 @@ export function toWorkflowError(error: unknown): unknown {
     return new NonRetriableError("Claude MCP cannot complete this enrichment request.", { cause: error });
   }
 
+  if (error instanceof OrganizationUsageLimitError) {
+    return new NonRetriableError(error.message, { cause: error });
+  }
+
   return error;
 }
 
@@ -122,6 +131,19 @@ async function initializeIngestion(
       .limit(1);
     if (!actor[0]) {
       throw new NonRetriableError("Ingestion actor is not a member of the target organization.");
+    }
+
+    try {
+      await reserveOrganizationUsage(tx, {
+        organizationId: context.organizationId,
+        kind: "domain_ingestion",
+        reservationKey: runId,
+      });
+    } catch (error) {
+      if (error instanceof OrganizationUsageLimitError) {
+        throw new NonRetriableError(error.message, { cause: error });
+      }
+      throw error;
     }
 
     const settings = await tx
@@ -501,6 +523,10 @@ export const ingestLead = inngest.createFunction(
     triggers: [{ event: leadIngestRequested }],
   },
   async ({ event, step }) => {
+    if (!isLeadIngestionEnabled()) {
+      return { skipped: true, reason: "LEAD_INGESTION_ENABLED=0" };
+    }
+
     const context: LeadContext = {
       organizationId: event.data.organizationId,
       userId: event.data.actorUserId,
@@ -527,6 +553,9 @@ export const ingestLead = inngest.createFunction(
       const enrichment: EnrichmentData = await step.run(
         "ai-enrichment",
         async () => {
+          if (!isAiActionsEnabled()) {
+            throw new NonRetriableError("AI enrichment is temporarily disabled by workspace configuration.");
+          }
           const provider = getAIProvider();
           const primaryContact = initialData.primaryContact
             ? JSON.stringify({

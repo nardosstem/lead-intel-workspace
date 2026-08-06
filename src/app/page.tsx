@@ -24,7 +24,7 @@ const foundations = [
   {
     title: "Provider-neutral AI",
     description:
-      "Domain services depend on an interface, with Claude MCP as the first adapter.",
+      "Domain services depend on an interface, with Gemini as the default and Claude MCP as fallback.",
     icon: Bot,
   },
 ] as const;
