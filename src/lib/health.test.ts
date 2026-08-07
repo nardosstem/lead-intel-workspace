@@ -105,6 +105,16 @@ describe("health readiness snapshot", () => {
     expect(databaseMock).not.toHaveBeenCalled();
   });
 
+  it("classifies Postgres password negotiation failures as authentication", async () => {
+    executeMock.mockRejectedValueOnce(
+      new Error("SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string"),
+    );
+
+    const snapshot = await getHealthSnapshot();
+
+    expect(snapshot.checks.databaseFailure).toBe("authentication");
+  });
+
   it("accepts local Inngest development mode without production signing keys", async () => {
     vi.stubEnv("INNGEST_DEV", "1");
     vi.stubEnv("INNGEST_EVENT_KEY", "");

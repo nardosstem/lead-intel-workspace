@@ -49,12 +49,16 @@ function configured(value: string | undefined): HealthDependencyState {
 function classifyDatabaseFailure(error: unknown): Exclude<HealthDatabaseFailure, null> {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
 
+  if (error instanceof Error && error.name === "ZodError") {
+    return "invalid-url";
+  }
+
   if (message.includes("invalid url") || message.includes("invalid input")) {
     return "invalid-url";
   }
 
   if (
-    /authentication failed|password authentication failed|no pg_hba|permission denied/.test(
+    /authentication failed|password authentication failed|no pg_hba|permission denied|sasl|scram|client password|password must be a string|role .* does not exist|database .* does not exist/.test(
       message,
     )
   ) {
