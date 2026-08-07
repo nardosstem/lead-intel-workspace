@@ -16,6 +16,7 @@ import { getHealthSnapshot } from "./health";
 
 const configuredEnvironment = {
   APOLLO_API_KEY: "apollo-key",
+  DATABASE_URL: "postgresql://user:password@db.example.com:5432/app",
   FIRECRAWL_API_KEY: "firecrawl-key",
   GEMINI_API_KEY: "gemini-key",
   CLAUDE_MCP_ENDPOINT: "https://mcp.example.com/tools",
@@ -46,6 +47,7 @@ describe("health readiness snapshot", () => {
       status: "ok",
       checks: {
         database: "ok",
+        databaseFailure: null,
         supabase: "configured",
         apollo: "configured",
         firecrawl: "configured",
@@ -77,12 +79,24 @@ describe("health readiness snapshot", () => {
   });
 
   it("reports unhealthy when the database cannot be reached", async () => {
-    executeMock.mockRejectedValueOnce(new Error("database unavailable"));
+    executeMock.mockRejectedValueOnce(new Error("connect ECONNREFUSED database"));
 
     const snapshot = await getHealthSnapshot();
 
     expect(snapshot.status).toBe("unhealthy");
     expect(snapshot.checks.database).toBe("error");
+    expect(snapshot.checks.databaseFailure).toBe("unreachable");
+  });
+
+  it("reports a missing database URL explicitly", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+
+    const snapshot = await getHealthSnapshot();
+
+    expect(snapshot.status).toBe("unhealthy");
+    expect(snapshot.checks.database).toBe("error");
+    expect(snapshot.checks.databaseFailure).toBe("missing-url");
+    expect(databaseMock).not.toHaveBeenCalled();
   });
 
   it("accepts local Inngest development mode without production signing keys", async () => {

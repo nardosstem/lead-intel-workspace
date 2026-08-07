@@ -12,11 +12,19 @@ import {
 
 export type HealthDependencyState = "configured" | "missing";
 export type HealthControlState = "enabled" | "disabled";
+export type HealthDatabaseFailure =
+  | "missing-url"
+  | "invalid-url"
+  | "unreachable"
+  | "authentication"
+  | "unknown"
+  | null;
 
 export type HealthSnapshot = Readonly<{
   status: "ok" | "degraded" | "unhealthy";
   checks: Readonly<{
     database: "ok" | "error";
+    databaseFailure: HealthDatabaseFailure;
     supabase: HealthDependencyState;
     apollo: HealthDependencyState;
     firecrawl: HealthDependencyState;
@@ -35,6 +43,30 @@ export type HealthSnapshot = Readonly<{
 
 function configured(value: string | undefined): HealthDependencyState {
   return value?.trim() ? "configured" : "missing";
+}
+
+function classifyDatabaseFailure(error: unknown): Exclude<HealthDatabaseFailure, null> {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  if (message.includes("invalid url") || message.includes("invalid input")) {
+    return "invalid-url";
+  }
+
+  if (
+    /authentication failed|password authentication failed|no pg_hba|permission denied/.test(
+      message,
+    )
+  ) {
+    return "authentication";
+  }
+
+  if (
+    /connect|timeout|timed out|econn|enotfound|refused|socket|dns|host/.test(message)
+  ) {
+    return "unreachable";
+  }
+
+  return "unknown";
 }
 
 function supabaseState(): HealthDependencyState {
@@ -60,14 +92,23 @@ function inngestState(): HealthDependencyState {
  */
 export async function getHealthSnapshot(): Promise<HealthSnapshot> {
   let database: "ok" | "error" = "ok";
-  try {
-    await getDatabase().execute(sql`select 1`);
-  } catch {
+  let databaseFailure: HealthDatabaseFailure = null;
+
+  if (!process.env.DATABASE_URL?.trim()) {
     database = "error";
+    databaseFailure = "missing-url";
+  } else {
+    try {
+      await getDatabase().execute(sql`select 1`);
+    } catch (error) {
+      database = "error";
+      databaseFailure = classifyDatabaseFailure(error);
+    }
   }
 
   const checks = {
     database,
+    databaseFailure,
     supabase: supabaseState(),
     apollo: configured(process.env.APOLLO_API_KEY),
     firecrawl: configured(process.env.FIRECRAWL_API_KEY),
