@@ -25,6 +25,7 @@ export type HealthSnapshot = Readonly<{
   checks: Readonly<{
     database: "ok" | "error";
     databaseFailure: HealthDatabaseFailure;
+    databaseErrorCode: string | null;
     supabase: HealthDependencyState;
     apollo: HealthDependencyState;
     firecrawl: HealthDependencyState;
@@ -61,12 +62,21 @@ function classifyDatabaseFailure(error: unknown): Exclude<HealthDatabaseFailure,
   }
 
   if (
-    /connect|timeout|timed out|econn|enotfound|refused|socket|dns|host/.test(message)
+    /connect|timeout|timed out|econn|enotfound|eai_again|enet|ehost|unreach|refused|socket|dns|host|network|connection terminated|server closed|unexpected eof/.test(
+      message,
+    )
   ) {
     return "unreachable";
   }
 
   return "unknown";
+}
+
+function databaseErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
+
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && /^[A-Za-z0-9_\-]{1,64}$/.test(code) ? code : null;
 }
 
 function supabaseState(): HealthDependencyState {
@@ -93,6 +103,7 @@ function inngestState(): HealthDependencyState {
 export async function getHealthSnapshot(): Promise<HealthSnapshot> {
   let database: "ok" | "error" = "ok";
   let databaseFailure: HealthDatabaseFailure = null;
+  let databaseCode: string | null = null;
 
   if (!process.env.DATABASE_URL?.trim()) {
     database = "error";
@@ -103,12 +114,14 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     } catch (error) {
       database = "error";
       databaseFailure = classifyDatabaseFailure(error);
+      databaseCode = databaseErrorCode(error);
     }
   }
 
   const checks = {
     database,
     databaseFailure,
+    databaseErrorCode: databaseCode,
     supabase: supabaseState(),
     apollo: configured(process.env.APOLLO_API_KEY),
     firecrawl: configured(process.env.FIRECRAWL_API_KEY),

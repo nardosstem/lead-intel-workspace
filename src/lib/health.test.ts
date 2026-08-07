@@ -48,6 +48,7 @@ describe("health readiness snapshot", () => {
       checks: {
         database: "ok",
         databaseFailure: null,
+        databaseErrorCode: null,
         supabase: "configured",
         apollo: "configured",
         firecrawl: "configured",
@@ -79,13 +80,17 @@ describe("health readiness snapshot", () => {
   });
 
   it("reports unhealthy when the database cannot be reached", async () => {
-    executeMock.mockRejectedValueOnce(new Error("connect ECONNREFUSED database"));
+    const error = Object.assign(new Error("connect ENETUNREACH database"), {
+      code: "ENETUNREACH",
+    });
+    executeMock.mockRejectedValueOnce(error);
 
     const snapshot = await getHealthSnapshot();
 
     expect(snapshot.status).toBe("unhealthy");
     expect(snapshot.checks.database).toBe("error");
     expect(snapshot.checks.databaseFailure).toBe("unreachable");
+    expect(snapshot.checks.databaseErrorCode).toBe("ENETUNREACH");
   });
 
   it("reports a missing database URL explicitly", async () => {
@@ -96,6 +101,7 @@ describe("health readiness snapshot", () => {
     expect(snapshot.status).toBe("unhealthy");
     expect(snapshot.checks.database).toBe("error");
     expect(snapshot.checks.databaseFailure).toBe("missing-url");
+    expect(snapshot.checks.databaseErrorCode).toBeNull();
     expect(databaseMock).not.toHaveBeenCalled();
   });
 
