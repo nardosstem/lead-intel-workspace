@@ -32,12 +32,20 @@ test.describe("authentication shell", () => {
   });
 
   test("supports dark mode without losing form contrast or labels", async ({ page }) => {
+    const cspViolations: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" && /content security policy|violates/i.test(message.text())) {
+        cspViolations.push(message.text());
+      }
+    });
+
     await page.emulateMedia({ colorScheme: "dark" });
     await page.goto("/login");
 
     await expect(page.locator("html")).toHaveClass(/dark/);
     await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
+    expect(cspViolations).toEqual([]);
   });
 
   test("redirects unauthenticated users away from the lead workbench", async ({ page }) => {

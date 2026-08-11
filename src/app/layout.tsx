@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 
 import { AppShell } from "@/components/shared/app-shell";
 import { ThemeProvider } from "@/components/shared/theme-provider";
@@ -26,11 +27,13 @@ export const metadata: Metadata = {
   description: "A focused workspace for founder-led lead intelligence.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
@@ -41,6 +44,7 @@ export default function RootLayout({
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
+          nonce={nonce}
         >
           <TooltipProvider>
             <AppShell>{children}</AppShell>
