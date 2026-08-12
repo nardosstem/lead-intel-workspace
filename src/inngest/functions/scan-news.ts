@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { and, asc, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
-import { cron, NonRetriableError } from "inngest";
+import { cron, NonRetriableError, type GetStepTools } from "inngest";
 
 import {
   companyNewsItems,
@@ -66,6 +66,45 @@ type ScanCounts = Readonly<{
 
 type ScanResult = ScanCounts & Readonly<{ warnings: string[] }>;
 
+type StartedScan = Readonly<{
+  scanId: string;
+  targets: SerializedScanTarget[];
+}>;
+
+type SerializedScanTarget = Omit<ScanTarget, "lastScannedAt"> & {
+  lastScannedAt: string | null;
+};
+
+type SerializedNewsCandidate = Omit<NewsCandidate, "publishedAt" | "discoveredAt"> & {
+  publishedAt: string | null;
+  discoveredAt: string;
+  relevanceScore: number;
+};
+
+type SerializedNewsArticle = Omit<NewsArticle, "publishedAt" | "discoveredAt"> & {
+  publishedAt: string | null;
+  discoveredAt: string;
+};
+
+type ProviderDiscoveryResult = Readonly<{
+  articles: SerializedNewsArticle[];
+  warning: string | null;
+}>;
+
+type DiscoveryResult = Readonly<{
+  candidates: SerializedNewsCandidate[];
+  warnings: string[];
+  scannedAt: string;
+}>;
+
+type StepRunner = GetStepTools<typeof inngest>;
+
+type ScrapeOutcome = Readonly<{
+  article: NewsArticle;
+  fetched: boolean;
+  warning?: string;
+}>;
+
 function positiveInteger(value: string | undefined, fallback: number, maximum: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
@@ -92,6 +131,72 @@ function maxArticlesPerCompany(): number {
 function safeError(error: unknown): string {
   if (error instanceof Error) return `${error.name}: ${error.message}`.slice(0, 1_000);
   return "Unknown scan error";
+}
+
+function serializeTarget(target: ScanTarget): SerializedScanTarget {
+  return {
+    ...target,
+    lastScannedAt: target.lastScannedAt?.toISOString() ?? null,
+  };
+}
+
+function deserializeTarget(target: SerializedScanTarget): ScanTarget {
+  return {
+    ...target,
+    lastScannedAt: target.lastScannedAt ? new Date(target.lastScannedAt) : null,
+  };
+}
+
+function serializeCandidate(candidate: NewsCandidate, relevanceScore: number): SerializedNewsCandidate {
+  return {
+    ...candidate,
+    publishedAt: candidate.publishedAt?.toISOString() ?? null,
+    discoveredAt: candidate.discoveredAt.toISOString(),
+    relevanceScore,
+  };
+}
+
+function deserializeCandidate(candidate: SerializedNewsCandidate): NewsCandidate {
+  return {
+    ...candidate,
+    publishedAt: candidate.publishedAt ? new Date(candidate.publishedAt) : null,
+    discoveredAt: new Date(candidate.discoveredAt),
+  };
+}
+
+function serializeArticle(article: NewsArticle): SerializedNewsArticle {
+  return {
+    ...article,
+    publishedAt: article.publishedAt?.toISOString() ?? null,
+    discoveredAt: article.discoveredAt.toISOString(),
+  };
+}
+
+function deserializeArticle(article: SerializedNewsArticle): NewsArticle {
+  return {
+    ...article,
+    publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
+    discoveredAt: new Date(article.discoveredAt),
+  };
+}
+
+/** Preserve a provider's non-fatal scrape warning in the durable scan record. */
+export function applyScrapeResult(
+  article: NewsArticle,
+  scraped: FirecrawlScrapeResult,
+): ScrapeOutcome {
+  if (!scraped.markdown) {
+    return { article, fetched: false, ...(scraped.warning ? { warning: scraped.warning } : {}) };
+  }
+
+  return {
+    article: {
+      ...article,
+      excerpt: `${article.excerpt ?? ""}\n${scraped.markdown.slice(0, MAX_MARKDOWN_FOR_SIGNAL)}`.slice(0, 2_000),
+    },
+    fetched: true,
+    ...(scraped.warning ? { warning: scraped.warning } : {}),
+  };
 }
 
 function contentHash(article: NewsArticle): string {
@@ -267,30 +372,47 @@ async function updateScan(
   }, actorUserId);
 }
 
-async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<ScanResult> {
+async function discoverTargetDurably(
+  step: StepRunner,
+  target: ScanTarget,
+  stepPrefix: string,
+): Promise<DiscoveryResult> {
   const now = new Date();
   const startDate = new Date(now.getTime() - DEFAULT_LOOKBACK_DAYS * 86_400_000);
   const queries = buildSignalQueries(target.companyName, target.companyDomain ?? undefined);
   const candidates: NewsCandidate[] = [];
   const warnings: string[] = [];
-  const gdelt = getGdeltClient();
 
   for (const query of queries) {
-    try {
-      const articles = await gdelt.search({ query: query.query, maxRecords: 20, startDate, endDate: now });
-      candidates.push(...articles.map((article) => toCandidate(article, target, query.signalType)));
-    } catch (error) {
-      warnings.push(`GDELT ${query.signalType}: ${safeError(error)}`);
-    }
+    const queryKey = query.signalType.replaceAll("_", "-");
+    const result = await step.run(`${stepPrefix}-gdelt-${queryKey}`, async (): Promise<ProviderDiscoveryResult> => {
+      try {
+        const articles = await getGdeltClient().search({
+          query: query.query,
+          maxRecords: 20,
+          startDate,
+          endDate: now,
+        });
+        return { articles: articles.map(serializeArticle), warning: null };
+      } catch (error) {
+        return { articles: [], warning: `GDELT ${query.signalType}: ${safeError(error)}` };
+      }
+    });
+    candidates.push(...result.articles.map((article) => toCandidate(deserializeArticle(article), target, query.signalType)));
+    if (result.warning) warnings.push(result.warning);
   }
 
   if (target.rssFeedUrl) {
-    try {
-      const rssArticles = await new RssClient().fetch(target.rssFeedUrl);
-      candidates.push(...rssArticles.map((article) => toCandidate(article, target, undefined)));
-    } catch (error) {
-      warnings.push(`RSS ${target.rssFeedUrl}: ${safeError(error)}`);
-    }
+    const result = await step.run(`${stepPrefix}-rss`, async (): Promise<ProviderDiscoveryResult> => {
+      try {
+        const articles = await new RssClient().fetch(target.rssFeedUrl!);
+        return { articles: articles.map(serializeArticle), warning: null };
+      } catch (error) {
+        return { articles: [], warning: `RSS ${target.rssFeedUrl}: ${safeError(error)}` };
+      }
+    });
+    candidates.push(...result.articles.map((article) => toCandidate(deserializeArticle(article), target, undefined)));
+    if (result.warning) warnings.push(result.warning);
   }
 
   const ranked = rankNewsCandidates(candidates, {
@@ -299,97 +421,21 @@ async function scanTarget(target: ScanTarget, actorUserId?: string): Promise<Sca
     icpScore: target.icpScore ?? undefined,
     lastSeenAt: target.lastScannedAt,
   }).slice(0, maxArticlesPerCompany());
-  let articlesFetched = 0;
-  let signalsExtracted = 0;
-  let provider: ReturnType<typeof getAIProvider> | null = null;
-  if (isAiActionsEnabled()) {
-    try {
-      provider = getAIProvider();
-    } catch (error) {
-      warnings.push(`AI provider: ${safeError(error)}`);
-    }
-  } else {
-    warnings.push("AI actions are disabled; using deterministic signal extraction.");
-  }
 
-  for (const scored of ranked) {
-    const newsItemId = await persistArticle(target, scored.candidate, scored.score, actorUserId);
-    let article = scored.candidate;
-    try {
-      const firecrawl = getFirecrawlClient();
-      const scraped: FirecrawlScrapeResult = await firecrawl.scrapeUrl(scored.candidate.canonicalUrl);
-      if (scraped.markdown) {
-        article = {
-          ...article,
-          excerpt: `${article.excerpt ?? ""}\n${scraped.markdown.slice(0, MAX_MARKDOWN_FOR_SIGNAL)}`.slice(0, 2_000),
-        };
-      }
-      articlesFetched += 1;
-    } catch (error) {
-      warnings.push(`Firecrawl ${scored.candidate.canonicalUrl}: ${safeError(error)}`);
-    }
-
-    const extracted = await extractSignals(provider, {
-      article,
-      company: {
-        name: target.companyName,
-        domain: target.companyDomain ?? undefined,
-        industry: target.industry ?? undefined,
-      },
-      matchedSignalType: scored.candidate.matchedSignalType,
-      context: {
-        organizationId: target.organizationId,
-        ...(actorUserId ? { actorUserId } : {}),
-        traceId: `news-scan:${target.organizationId}:${target.companyId}`,
-        dataClassification: "public",
-      },
-    });
-    if (extracted.warning) warnings.push(`AI ${scored.candidate.canonicalUrl}: ${extracted.warning}`);
-    if (extracted.extraction.signals.length > 0) {
-      await withSystemTenantContext(target.organizationId, async (tx) => {
-        await tx
-          .insert(leadSignals)
-          .values(
-            extracted.extraction.signals.map((signal) =>
-              toLeadSignalInsert({
-                organizationId: target.organizationId,
-                companyId: target.companyId,
-                newsItemId,
-                signal,
-                model: extracted.model ?? extracted.provider,
-              }),
-            ),
-          )
-          .onConflictDoNothing({
-            target: [leadSignals.organizationId, leadSignals.companyId, leadSignals.newsItemId, leadSignals.signalType],
-          });
-      }, actorUserId);
-      signalsExtracted += extracted.extraction.signals.length;
-    }
-  }
-
-  await withSystemTenantContext(target.organizationId, async (tx) => {
-    await tx
-      .update(monitoringTargets)
-      .set({
-        lastScannedAt: now,
-        nextScanAt: new Date(now.getTime() + target.scanFrequencyDays * 86_400_000),
-      })
-      .where(and(eq(monitoringTargets.id, target.targetId), eq(monitoringTargets.organizationId, target.organizationId)));
-  }, actorUserId);
-
-  return { candidatesFound: candidates.length, articlesFetched, signalsExtracted, warnings };
+  return {
+    candidates: ranked.map(({ candidate, score }) => serializeCandidate(candidate, score)),
+    warnings,
+    scannedAt: now.toISOString(),
+  };
 }
 
-async function runOrganizationScan(
+async function startDurableScan(
   organizationId: string,
   actorUserId: string | undefined,
   reservationKey: string,
-): Promise<ScanCounts & { warning?: string }> {
+): Promise<StartedScan | null> {
   const targets = await loadDueTargets(organizationId);
-  if (targets.length === 0) {
-    return { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
-  }
+  if (targets.length === 0) return null;
 
   const now = new Date();
   const scan = await withSystemTenantContext(
@@ -399,13 +445,11 @@ async function runOrganizationScan(
         const actor = await tx
           .select({ id: users.id })
           .from(users)
-          .where(
-            and(
-              eq(users.id, actorUserId),
-              eq(users.organizationId, organizationId),
-              eq(users.isActive, true),
-            ),
-          )
+          .where(and(
+            eq(users.id, actorUserId),
+            eq(users.organizationId, organizationId),
+            eq(users.isActive, true),
+          ))
           .limit(1);
         if (!actor[0]) {
           throw new NonRetriableError("News scan actor is not an active member of the target organization.");
@@ -424,46 +468,161 @@ async function runOrganizationScan(
         throw error;
       }
 
-      return (
-        await tx
-          .insert(signalScans)
-          .values({ organizationId, status: "running", startedAt: now })
-          .returning({ id: signalScans.id })
-      )[0];
+      const inserted = await tx
+        .insert(signalScans)
+        .values({ organizationId, status: "running", startedAt: now })
+        .returning({ id: signalScans.id });
+      return inserted[0] ?? null;
     },
     actorUserId,
   );
-  if (!scan) {
-    return {
-      candidatesFound: 0,
-      articlesFetched: 0,
-      signalsExtracted: 0,
-      warning: "The organization news-scan daily limit has been reached.",
-    };
+
+  return scan
+    ? { scanId: scan.id, targets: targets.map(serializeTarget) }
+    : null;
+}
+
+async function saveExtractedSignals(
+  target: ScanTarget,
+  newsItemId: string,
+  extracted: Awaited<ReturnType<typeof extractSignals>>,
+  actorUserId?: string,
+): Promise<number> {
+  if (extracted.extraction.signals.length === 0) return 0;
+  await withSystemTenantContext(target.organizationId, async (tx) => {
+    await tx
+      .insert(leadSignals)
+      .values(extracted.extraction.signals.map((signal) => toLeadSignalInsert({
+        organizationId: target.organizationId,
+        companyId: target.companyId,
+        newsItemId,
+        signal,
+        model: extracted.model ?? extracted.provider,
+      })))
+      .onConflictDoNothing({
+        target: [leadSignals.organizationId, leadSignals.companyId, leadSignals.newsItemId, leadSignals.signalType],
+      });
+  }, actorUserId);
+  return extracted.extraction.signals.length;
+}
+
+async function runDurableTarget(
+  step: StepRunner,
+  target: SerializedScanTarget,
+  actorUserId: string | undefined,
+  stepPrefix: string,
+): Promise<ScanResult> {
+  const parsedTarget = deserializeTarget(target);
+  const discovery = await discoverTargetDurably(step, parsedTarget, stepPrefix);
+  const warnings = [...discovery.warnings];
+  let articlesFetched = 0;
+  let signalsExtracted = 0;
+
+  for (const serializedCandidate of discovery.candidates) {
+    const candidate = deserializeCandidate(serializedCandidate);
+    const candidateKey = createHash("sha256").update(candidate.canonicalUrl).digest("hex").slice(0, 16);
+    const newsItemId = await step.run(`${stepPrefix}-persist-${candidateKey}`, () =>
+      persistArticle(parsedTarget, candidate, serializedCandidate.relevanceScore, actorUserId),
+    );
+    const scraped = await step.run(`${stepPrefix}-scrape-${candidateKey}`, () => {
+      try {
+        return getFirecrawlClient().scrapeUrl(candidate.canonicalUrl);
+      } catch (error) {
+        return Promise.resolve({
+          sourceUrl: candidate.canonicalUrl,
+          markdown: "",
+          truncated: false,
+          warning: safeError(error),
+        } satisfies FirecrawlScrapeResult);
+      }
+    });
+    if (scraped.markdown) articlesFetched += 1;
+    if (scraped.warning) warnings.push(`Firecrawl ${candidate.canonicalUrl}: ${scraped.warning}`);
+
+    const extracted = await step.run(`${stepPrefix}-enrich-${candidateKey}`, async () => {
+      let provider: ReturnType<typeof getAIProvider> | null = null;
+      if (isAiActionsEnabled()) {
+        try {
+          provider = getAIProvider();
+        } catch (error) {
+          return {
+            ...(await extractSignals(null, {
+              article: applyScrapeResult(candidate, scraped).article,
+              company: { name: parsedTarget.companyName, domain: parsedTarget.companyDomain ?? undefined, industry: parsedTarget.industry ?? undefined },
+              matchedSignalType: candidate.matchedSignalType,
+              context: { organizationId: parsedTarget.organizationId, ...(actorUserId ? { actorUserId } : {}), traceId: `news-scan:${parsedTarget.organizationId}:${parsedTarget.companyId}`, dataClassification: "public" },
+            })),
+            warning: `AI provider: ${safeError(error)}`,
+          };
+        }
+      }
+      return extractSignals(provider, {
+        article: applyScrapeResult(candidate, scraped).article,
+        company: { name: parsedTarget.companyName, domain: parsedTarget.companyDomain ?? undefined, industry: parsedTarget.industry ?? undefined },
+        matchedSignalType: candidate.matchedSignalType,
+        context: { organizationId: parsedTarget.organizationId, ...(actorUserId ? { actorUserId } : {}), traceId: `news-scan:${parsedTarget.organizationId}:${parsedTarget.companyId}`, dataClassification: "public" },
+      });
+    });
+    if (extracted.warning) warnings.push(`AI ${candidate.canonicalUrl}: ${extracted.warning}`);
+    signalsExtracted += await step.run(`${stepPrefix}-save-signals-${candidateKey}`, () =>
+      saveExtractedSignals(parsedTarget, newsItemId, extracted, actorUserId),
+    );
   }
+
+  await step.run(`${stepPrefix}-mark-target-scanned`, () => withSystemTenantContext(parsedTarget.organizationId, async (tx) => {
+    const scannedAt = new Date(discovery.scannedAt);
+    await tx
+      .update(monitoringTargets)
+      .set({
+        lastScannedAt: scannedAt,
+        nextScanAt: new Date(scannedAt.getTime() + parsedTarget.scanFrequencyDays * 86_400_000),
+      })
+      .where(and(eq(monitoringTargets.id, parsedTarget.targetId), eq(monitoringTargets.organizationId, parsedTarget.organizationId)));
+  }, actorUserId));
+
+  return {
+    candidatesFound: discovery.candidates.length,
+    articlesFetched,
+    signalsExtracted,
+    warnings,
+  };
+}
+
+async function runDurableOrganizationScan(
+  step: StepRunner,
+  organizationId: string,
+  actorUserId: string | undefined,
+  reservationKey: string,
+  stepPrefix: string,
+): Promise<ScanCounts & { warning?: string }> {
+  const started = await step.run(`${stepPrefix}-start`, () =>
+    startDurableScan(organizationId, actorUserId, reservationKey),
+  );
+  if (!started) return { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
 
   const totals = { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
   const warnings: string[] = [];
   try {
-    for (const target of targets) {
-      const result = await scanTarget(target, actorUserId);
+    for (const target of started.targets) {
+      const result = await runDurableTarget(step, target, actorUserId, `${stepPrefix}-target-${target.targetId}`);
       totals.candidatesFound += result.candidatesFound;
       totals.articlesFetched += result.articlesFetched;
       totals.signalsExtracted += result.signalsExtracted;
       warnings.push(...result.warnings.slice(0, 10));
     }
-    await updateScan(scan.id, organizationId, {
+    const warning = warnings.length ? warnings.join(" | ").slice(0, 1_000) : null;
+    await step.run(`${stepPrefix}-complete`, () => updateScan(started.scanId, organizationId, {
       ...totals,
       status: "completed",
-      error: warnings.length ? warnings.join(" | ").slice(0, 1_000) : null,
-    }, actorUserId);
-    return { ...totals, ...(warnings.length ? { warning: warnings.join(" | ").slice(0, 1_000) } : {}) };
+      error: warning,
+    }, actorUserId));
+    return { ...totals, ...(warning ? { warning } : {}) };
   } catch (error) {
-    await updateScan(scan.id, organizationId, {
+    await step.run(`${stepPrefix}-failed`, () => updateScan(started.scanId, organizationId, {
       ...totals,
       status: "failed",
       error: safeError(error),
-    }, actorUserId);
+    }, actorUserId));
     throw error;
   }
 }
@@ -483,8 +642,12 @@ export const scanNewsScheduled = inngest.createFunction(
     );
     const results = [];
     for (const organizationId of organizationIds) {
-      results.push(await step.run(`scan-organization-${organizationId}`, () =>
-        runOrganizationScan(organizationId, undefined, `scheduled:${organizationId}:${scanDate}`),
+      results.push(await runDurableOrganizationScan(
+        step,
+        organizationId,
+        undefined,
+        `scheduled:${organizationId}:${scanDate}`,
+        `scan-organization-${organizationId}`,
       ));
     }
     return { organizations: organizationIds.length, results };
@@ -501,15 +664,19 @@ export const scanNewsRequested = inngest.createFunction(
   },
   async ({ event, step }) => {
     if (!scanEnabled()) return { skipped: true, reason: "NEWS_SCAN_ENABLED=0" };
-    return step.run("scan-organization", () =>
-      runOrganizationScan(event.data.organizationId, event.data.actorUserId, event.data.runId),
+    return runDurableOrganizationScan(
+      step,
+      event.data.organizationId,
+      event.data.actorUserId,
+      event.data.runId,
+      "scan-organization",
     );
   },
 );
 
 export const __newsScanInternals = {
   loadDueTargets,
-  runOrganizationScan,
-  scanTarget,
+  startDurableScan,
   scanEnabled,
+  applyScrapeResult,
 };

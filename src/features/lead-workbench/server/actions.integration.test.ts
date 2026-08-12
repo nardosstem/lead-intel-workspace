@@ -159,7 +159,7 @@ describe("authenticated lead Server Actions", () => {
     expect((await getLeads()).monitoringByCompanyId[companyA.id]).toBeUndefined();
     expectSuccess(await setCompanyMonitoring({ companyId: companyA.id, enabled: true }));
     await expect(
-      __newsScanInternals.runOrganizationScan(ids.organizationA, ids.userB, randomUUID()),
+      __newsScanInternals.startDurableScan(ids.organizationA, ids.userB, randomUUID()),
     ).rejects.toBeInstanceOf(NonRetriableError);
     const duplicate = await createCompany({
       name: "Duplicate Company A",

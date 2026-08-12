@@ -46,4 +46,30 @@ describe("news scan workflows", () => {
     vi.stubEnv("NEWS_SCAN_ENABLED", "1");
     expect(__newsScanInternals.scanEnabled()).toBe(true);
   });
+
+  it("retains non-fatal Firecrawl warnings and does not count empty scrapes as fetched", () => {
+    const outcome = __newsScanInternals.applyScrapeResult(
+      {
+        canonicalUrl: "https://news.example.com/acme",
+        title: "Acme news",
+        publisher: "Example News",
+        sourceDomain: "news.example.com",
+        sourceType: "gdelt",
+        publishedAt: null,
+        discoveredAt: new Date("2026-01-01T00:00:00.000Z"),
+        excerpt: "A short excerpt",
+        metadata: {},
+      },
+      {
+        sourceUrl: "https://news.example.com/acme",
+        markdown: "",
+        truncated: false,
+        warning: "Firecrawl timed out while scraping the website.",
+      },
+    );
+
+    expect(outcome.fetched).toBe(false);
+    expect(outcome.warning).toMatch(/timed out/i);
+    expect(outcome.article.excerpt).toBe("A short excerpt");
+  });
 });
