@@ -79,10 +79,10 @@ describe("authenticated lead Server Actions", () => {
         values (${ids.userA}), (${ids.userB})
       `;
       await tx`
-        insert into public.users (id, organization_id, email, full_name, role)
+        insert into public.users (id, organization_id, email, full_name, role, password_setup_at)
         values
-          (${ids.userA}, ${ids.organizationA}, 'integration-a@example.invalid', 'Integration A', 'owner'),
-          (${ids.userB}, ${ids.organizationB}, 'integration-b@example.invalid', 'Integration B', 'owner')
+          (${ids.userA}, ${ids.organizationA}, 'integration-a@example.invalid', 'Integration A', 'owner', now()),
+          (${ids.userB}, ${ids.organizationB}, 'integration-b@example.invalid', 'Integration B', 'owner', now())
       `;
     });
   });
@@ -159,7 +159,7 @@ describe("authenticated lead Server Actions", () => {
     expect((await getLeads()).monitoringByCompanyId[companyA.id]).toBeUndefined();
     expectSuccess(await setCompanyMonitoring({ companyId: companyA.id, enabled: true }));
     await expect(
-      __newsScanInternals.startDurableScan(ids.organizationA, ids.userB, randomUUID()),
+      __newsScanInternals.startDurableScan(ids.organizationA, ids.userB, randomUUID(), "2026-08-11"),
     ).rejects.toBeInstanceOf(NonRetriableError);
     const duplicate = await createCompany({
       name: "Duplicate Company A",

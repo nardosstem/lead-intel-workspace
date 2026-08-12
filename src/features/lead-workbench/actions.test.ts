@@ -27,7 +27,21 @@ const databaseMock = vi.hoisted(() => ({
       where: vi.fn(async () => [{ value: 1 }]),
     })),
   })),
-  transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({})),
+  transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({
+    execute: vi.fn(async () => undefined),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+      })),
+    })),
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        returning: vi.fn(async () => [{ id: "10000000-0000-4000-8000-000000000004" }]),
+        onConflictDoNothing: vi.fn(() => ({ returning: vi.fn(async () => [{ id: "10000000-0000-4000-8000-000000000004" }]) })),
+      })),
+    })),
+    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
+  })),
 }));
 
 vi.mock("@/inngest/client", () => ({
@@ -36,15 +50,30 @@ vi.mock("@/inngest/client", () => ({
   newsScanRequested: { create: newsCreateEventMock },
 }));
 
-vi.mock("@/lib/db", () => ({ getDatabase: () => databaseMock, monitoringTargets: {} }));
+vi.mock("@/lib/db", () => ({ getDatabase: () => databaseMock, auditLogs: {}, ingestionRuns: {}, monitoringTargets: {}, companies: {}, organizations: {}, pipeline: {}, signalScans: {} }));
 vi.mock("@/lib/db/usage", () => ({
   OrganizationUsageLimitError: class OrganizationUsageLimitError extends Error {},
   reserveOrganizationUsage: vi.fn(),
   releaseOrganizationUsage: vi.fn(),
+  usageDateKey: vi.fn(() => "2026-08-11"),
 }));
 vi.mock("./server/context", () => ({
   requireLeadContext: contextMock,
-  withLeadMutationContext: vi.fn(async (_context: unknown, callback: (tx: unknown) => Promise<unknown>) => callback({})),
+  withLeadMutationContext: vi.fn(async (_context: unknown, callback: (tx: unknown) => Promise<unknown>) => callback({
+    execute: vi.fn(async () => undefined),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+      })),
+    })),
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        returning: vi.fn(async () => [{ id: "10000000-0000-4000-8000-000000000004" }]),
+        onConflictDoNothing: vi.fn(() => ({ returning: vi.fn(async () => [{ id: "10000000-0000-4000-8000-000000000004" }]) })),
+      })),
+    })),
+    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
+  })),
 }));
 
 import { triggerDomainIngestion, triggerNewsScan } from "./actions";
@@ -89,16 +118,14 @@ describe("triggerDomainIngestion", () => {
   it("dispatches a tenant-scoped event and normalizes the domain", async () => {
     const result = await triggerDomainIngestion("https://www.acme.com/pricing");
 
-    expect(result).toEqual({
-      ok: true,
-      data: { message: "Ingestion started in background" },
-    });
+    expect(result).toMatchObject({ ok: true, data: { message: "Ingestion started in background" } });
     expect(createEventMock).toHaveBeenCalledWith({
       domain: "acme.com",
       targetTitles: ["CEO", "Founder", "VP", "Director"],
       organizationId: "10000000-0000-4000-8000-000000000001",
       actorUserId: "10000000-0000-4000-8000-000000000002",
       runId: expect.any(String),
+      usageDate: "2026-08-11",
     });
     expect(sendMock).toHaveBeenCalledWith({
       name: "lead.ingest.requested",
@@ -122,15 +149,13 @@ describe("triggerDomainIngestion", () => {
   it("dispatches an organization-scoped background news scan", async () => {
     const result = await triggerNewsScan();
 
-    expect(result).toEqual({
-      ok: true,
-      data: { message: "News scan started in background" },
-    });
+    expect(result).toMatchObject({ ok: true, data: { message: "News scan started in background", runId: expect.any(String) } });
     expect(newsCreateEventMock).toHaveBeenCalledWith({
       organizationId: "10000000-0000-4000-8000-000000000001",
       actorUserId: "10000000-0000-4000-8000-000000000002",
       runId: expect.any(String),
       force: true,
+      usageDate: "2026-08-11",
     });
     expect(sendMock).toHaveBeenCalledWith({
       name: "lead.news.scan.requested",

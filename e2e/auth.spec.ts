@@ -10,13 +10,17 @@ test.describe("authentication shell", () => {
     await expect(page.getByLabel("Password")).toHaveAttribute("autocomplete", "current-password");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "New here? Create an account" }).click();
-
-    await expect(page.getByLabel(/Name/)).toBeVisible();
-    await expect(page.getByLabel("Password")).toHaveAttribute("autocomplete", "new-password");
-    await expect(page.getByRole("button", { name: "Create account", exact: true })).toBeVisible();
-
-    await page.getByRole("button", { name: "Already have an account? Sign in" }).click();
+    const signupToggle = page.getByRole("button", { name: "New here? Create an account" });
+    if (await signupToggle.count()) {
+      await signupToggle.click();
+      await expect(page.getByLabel(/Name/)).toBeVisible();
+      await expect(page.getByLabel("Password")).toHaveAttribute("autocomplete", "new-password");
+      await expect(page.getByRole("button", { name: "Create account", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Already have an account? Sign in" }).click();
+    } else {
+      await expect(page.getByLabel(/Name/)).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Create account", exact: true })).toHaveCount(0);
+    }
     await page.getByRole("button", { name: "Forgot your password?" }).click();
     await expect(page.getByRole("button", { name: "Send reset link", exact: true })).toBeVisible();
     await expect(page.getByLabel("Password")).toHaveCount(0);

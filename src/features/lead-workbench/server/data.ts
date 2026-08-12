@@ -24,6 +24,7 @@ import {
   organizations,
   organizationInvitations,
   monitoringTargets,
+  signalScans,
   users,
   pipeline,
 } from "@/lib/db";
@@ -270,6 +271,7 @@ export async function getWorkbenchSnapshot(
     auditRows,
     signalRows,
     monitoringRows,
+    latestNewsScanRows,
   ] = await Promise.all([
     db
       .select({
@@ -482,6 +484,12 @@ export async function getWorkbenchSnapshot(
       })
       .from(monitoringTargets)
       .where(eq(monitoringTargets.organizationId, context.organizationId)),
+    db
+      .select()
+      .from(signalScans)
+      .where(eq(signalScans.organizationId, context.organizationId))
+      .orderBy(desc(signalScans.createdAt))
+      .limit(1),
   ]);
   const currentUserRole =
     memberRows.find((member) => member.id === context.userId)?.role ?? "member";
@@ -575,6 +583,18 @@ export async function getWorkbenchSnapshot(
     auditLogs: auditRows.map(toAuditRecord),
     companyOptions,
     monitoringByCompanyId,
+    latestNewsScan: latestNewsScanRows[0]
+      ? {
+          runId: latestNewsScanRows[0].runId,
+          status: latestNewsScanRows[0].status,
+          createdAt: latestNewsScanRows[0].createdAt.toISOString(),
+          completedAt: latestNewsScanRows[0].completedAt?.toISOString() ?? null,
+          candidatesFound: latestNewsScanRows[0].candidatesFound,
+          articlesFetched: latestNewsScanRows[0].articlesFetched,
+          signalsExtracted: latestNewsScanRows[0].signalsExtracted,
+          error: latestNewsScanRows[0].error,
+        }
+      : null,
     metrics: {
       totalCompanies: countValue(totalCompanyRows[0]),
       totalContacts: countValue(totalContactRows[0]),

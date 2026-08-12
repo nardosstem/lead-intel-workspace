@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createBrowserSupabaseClient } from "@/lib/auth";
+import { completePasswordSetup } from "./complete-password-setup";
 
-export function ResetPasswordForm() {
+export function ResetPasswordForm({ required = false }: Readonly<{ required?: boolean }>) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<"checking" | "ready" | "missing">("checking");
@@ -57,13 +58,9 @@ export function ResetPasswordForm() {
       }
 
       try {
-        const { error: updateError } = await createBrowserSupabaseClient().auth.updateUser({ password });
-        if (updateError) {
-          setError(
-            /session|auth/i.test(updateError.message)
-              ? "This reset link is invalid or expired. Request a new reset link and try again."
-              : updateError.message,
-          );
+        const setupResult = await completePasswordSetup(password);
+        if (!setupResult.ok) {
+          setError(setupResult.error ?? "Your password could not be updated. Request a new reset link and try again.");
           return;
         }
         router.replace("/leads");
@@ -86,6 +83,7 @@ export function ResetPasswordForm() {
           This page needs a valid password-reset link. Request a new reset link from the sign-in page.
         </p>
       ) : null}
+      {required ? <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300" role="status">Finish setting your password before entering the workspace.</p> : null}
       <div className="space-y-2">
         <label htmlFor="password" className="text-sm font-medium">New password</label>
         <Input id="password" name="password" type="password" autoComplete="new-password" minLength={8} required disabled={sessionState !== "ready" || isPending} />

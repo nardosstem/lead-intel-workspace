@@ -66,6 +66,13 @@ export const organizationUsageKindEnum = pgEnum("organization_usage_kind", [
   "news_scan",
   "ai_action",
 ] as const);
+export const ingestionRunStatusEnum = pgEnum("ingestion_run_status", [
+  "queued",
+  "dispatched",
+  "processing",
+  "complete",
+  "failed",
+] as const);
 
 export const organizations = pgTable(
   "organizations",
@@ -93,6 +100,30 @@ export const organizations = pgTable(
       sql`${table.defaultFollowUpDays} >= 1 AND ${table.defaultFollowUpDays} <= 90`,
     ),
     uniqueIndex("organizations_slug_uidx").on(table.slug),
+  ],
+).enableRLS();
+
+/** Durable outbox for Apollo/Firecrawl lead-ingestion events. */
+export const ingestionRuns = pgTable(
+  "ingestion_runs",
+  {
+    id: uuid("id").primaryKey(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    actorUserId: uuid("actor_user_id").notNull(),
+    domain: varchar("domain", { length: 253 }).notNull(),
+    targetTitles: jsonb("target_titles").$type<ReadonlyArray<string>>().notNull().default([]),
+    usageDate: date("usage_date", { mode: "string" }).notNull(),
+    status: ingestionRunStatusEnum("status").notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastError: varchar("last_error", { length: 1_000 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  (table) => [
+    index("ingestion_runs_organization_status_idx").on(table.organizationId, table.status, table.nextAttemptAt),
+    index("ingestion_runs_next_attempt_idx").on(table.status, table.nextAttemptAt),
   ],
 ).enableRLS();
 
@@ -150,6 +181,8 @@ export const users = pgTable(
     role: organizationRoleEnum("role").notNull().default("member"),
     isActive: boolean("is_active").notNull().default(true),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    /** Set after an invited user chooses an initial password. */
+    passwordSetupAt: timestamp("password_setup_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -631,6 +664,8 @@ export const signalScans = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Stable event key linking foreground/manual requests to the durable run. */
+    runId: varchar("run_id", { length: 200 }),
     status: signalScanStatusEnum("status").notNull().default("pending"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -659,6 +694,7 @@ export const signalScans = pgTable(
       table.organizationId,
       table.status,
     ),
+    uniqueIndex("signal_scans_organization_run_uidx").on(table.organizationId, table.runId),
   ],
 ).enableRLS();
 
@@ -667,6 +703,9 @@ export type NewOrganization = typeof organizations.$inferInsert;
 export type OrganizationUsage = typeof organizationUsage.$inferSelect;
 export type NewOrganizationUsage = typeof organizationUsage.$inferInsert;
 export type OrganizationUsageKind = (typeof organizationUsageKindEnum.enumValues)[number];
+export type IngestionRun = typeof ingestionRuns.$inferSelect;
+export type NewIngestionRun = typeof ingestionRuns.$inferInsert;
+export type IngestionRunStatus = (typeof ingestionRunStatusEnum.enumValues)[number];
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type OrganizationRole = (typeof organizationRoleEnum.enumValues)[number];

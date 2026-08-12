@@ -8,13 +8,23 @@ import { AIProviderError } from "@/lib/ai";
 import {
   aiEnrichmentSchema,
   automaticEnrichmentDataClassification,
+  MAX_DISPATCH_ATTEMPTS,
   ingestLead,
+  dispatchQueuedLeadIngestions,
   publicEnrichmentInput,
   safeEnrichmentError,
+  toFirecrawlWorkflowError,
   toWorkflowError,
 } from "./ingest-lead";
 
 describe("lead ingestion workflow error policy", () => {
+  it("bounds interrupted outbox delivery attempts", () => {
+    expect(MAX_DISPATCH_ATTEMPTS).toBe(5);
+  });
+  it("registers a bounded queued-request dispatcher", () => {
+    expect(dispatchQueuedLeadIngestions.opts.concurrency).toEqual({ limit: 1, scope: "fn" });
+    expect(dispatchQueuedLeadIngestions.opts.triggers).toHaveLength(1);
+  });
   it("serializes tenant/domain duplicates and caps provider pressure", () => {
     expect(ingestLead.opts.concurrency).toEqual([
       {
@@ -52,6 +62,11 @@ describe("lead ingestion workflow error policy", () => {
   it("stores only safe error categories", () => {
     const error = new ApolloApiError("provider response included secret data", 403);
     expect(safeEnrichmentError(error)).toBe("ApolloApiError (HTTP 403)");
+  });
+
+  it("treats Firecrawl provider rejection as terminal but target rejection as non-fatal", () => {
+    expect(toFirecrawlWorkflowError({ sourceUrl: "https://example.com", markdown: "", truncated: false, failure: "provider" })).toBeInstanceOf(NonRetriableError);
+    expect(toFirecrawlWorkflowError({ sourceUrl: "https://example.com", markdown: "", truncated: false, failure: "target" })).toBeNull();
   });
 
   it("bounds AI enrichment pain points before persistence", () => {

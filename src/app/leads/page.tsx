@@ -36,7 +36,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
   if (!workspaceContext) {
     redirect(
       user.invited_at
-        ? "/login?error=invitation_expired&next=/leads"
+        ? "/login/reset-password?required=1"
         : "/login?error=workspace_signup_disabled&next=/leads",
     );
   }

@@ -11,6 +11,7 @@ import {
   leadSignals,
   monitoringTargets,
   organizations,
+  getDatabase,
   organizationInvitations,
   pipeline,
   users,
@@ -94,6 +95,10 @@ function actionFailure(error: unknown): ActionResult<never> {
 
   if (error instanceof Error && error.name === "WorkspaceAccessDisabledError") {
     return { ok: false, error: "Workspace access is disabled for this account." };
+  }
+
+  if (error instanceof Error && error.name === "PasswordSetupRequiredError") {
+    return { ok: false, error: "Set your password before accessing the workspace." };
   }
 
   if (error instanceof RolePolicyError && error.kind === "authorization") {
@@ -416,7 +421,7 @@ export async function updateMemberStatus(
   }
 }
 
-async function markInvitationFailed(
+async function markInvitationDeliveryUncertain(
   context: { userId: string; organizationId: string },
   invitationId: string,
 ): Promise<void> {
@@ -424,7 +429,10 @@ async function markInvitationFailed(
     await withLeadMutationContext(context, async (tx) => {
       const updated = await tx
         .update(organizationInvitations)
-        .set({ status: "failed" })
+        // A provider error is ambiguous: Supabase may have accepted the
+        // invite before the response timed out. Keep the pending row valid so
+        // a delivered link cannot be stranded; admins can revoke explicitly.
+        .set({ updatedAt: new Date() })
         .where(
           and(
             eq(organizationInvitations.id, invitationId),
@@ -438,10 +446,10 @@ async function markInvitationFailed(
       await tx.insert(auditLogs).values({
         organizationId: context.organizationId,
         actorUserId: context.userId,
-        action: "member_invitation_failed",
+        action: "member_invitation_delivery_uncertain",
         entityType: "organization_invitation",
         entityId: invitationId,
-        changes: { status: "failed" },
+        changes: { status: "pending", delivery: "uncertain" },
         metadata: { source: "supabase-auth-invitation" },
       });
     }, { allowInactiveActor: true });
@@ -493,7 +501,9 @@ export async function inviteMember(
           )
           .limit(1);
         if (existingInvitation[0]) {
-          throw new InvitationConflictError("A pending invitation already exists for that email.");
+          throw new InvitationConflictError(
+            "That email cannot be invited to this workspace. Ask the workspace owner to review the account.",
+          );
         }
 
         const inserted = await tx
@@ -536,9 +546,51 @@ export async function inviteMember(
         },
       };
     } catch (error) {
-      if (invitationId) await markInvitationFailed(context, invitationId);
+      if (invitationId) await markInvitationDeliveryUncertain(context, invitationId);
       throw error;
     }
+  } catch (error) {
+    return actionFailure(error);
+  }
+}
+
+/** Retries delivery without invalidating a provider-issued link after an
+ * ambiguous timeout. The pending row is the durable source of truth. */
+export async function resendInvitation(
+  id: string,
+): Promise<ActionResult<OrganizationInvitationRecord>> {
+  const parsed = z.uuid().safeParse(id);
+  if (!parsed.success) return { ok: false, error: "Invalid invitation id." };
+  try {
+    const context = await requireLeadAdminContext();
+    const invitation = await getDatabase()
+      .select()
+      .from(organizationInvitations)
+      .where(and(
+        eq(organizationInvitations.id, parsed.data),
+        eq(organizationInvitations.organizationId, context.organizationId),
+        eq(organizationInvitations.status, "pending"),
+        gt(organizationInvitations.expiresAt, new Date()),
+      ))
+      .limit(1);
+    const pending = invitation[0];
+    if (!pending) throw new InvitationConflictError("That invitation is no longer pending.");
+    try {
+      await sendOrganizationInvitation(pending.email);
+    } catch (error) {
+      await markInvitationDeliveryUncertain(context, pending.id);
+      throw error;
+    }
+    return {
+      ok: true,
+      data: {
+        id: pending.id,
+        email: pending.email,
+        role: pending.role === "owner" ? "member" : pending.role,
+        expiresAt: pending.expiresAt.toISOString(),
+        createdAt: pending.createdAt.toISOString(),
+      },
+    };
   } catch (error) {
     return actionFailure(error);
   }
@@ -727,6 +779,9 @@ export async function setCompanyMonitoring(
       : null;
     if (parsed.data.rssFeedUrl && !rssFeedUrl) {
       return { ok: false, error: "RSS feed must be a public HTTPS URL." };
+    }
+    if (parsed.data.rssFeedUrl !== undefined) {
+      await requireLeadAdminContext();
     }
     return {
       ok: true,

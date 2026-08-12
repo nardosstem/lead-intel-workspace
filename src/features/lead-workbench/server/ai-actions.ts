@@ -224,8 +224,9 @@ export async function researchCompany(
     if (!websiteValidation.success) {
       return { ok: false, error: "Add a public HTTPS company website before researching." };
     }
+    const provider = getAIProvider();
     await reserveAiAction(context);
-    const result = await getAIProvider().extractEntities({
+    const result = await provider.extractEntities({
       text: `Research the company website at ${websiteValidation.data.websiteUrl}. Return a concise company summary, likely operational or commercial pain points, and evidence signals. Fetch only public information available at that URL.`,
       schema: researchResultSchema,
       instructions:
@@ -268,8 +269,9 @@ export async function scoreICP(
   try {
     const context = await requireLeadContext();
     const companyData = await loadCompanyAiData(context, parsed.data.companyId);
+    const provider = getAIProvider();
     await reserveAiAction(context);
-    const result = await getAIProvider().extractEntities({
+    const result = await provider.extractEntities({
       text: `Score this company against the workspace's ideal customer profile. Company data: ${JSON.stringify(companyData)}`,
       schema: scoreResultSchema,
       instructions:
@@ -314,8 +316,9 @@ export async function draftOutreach(
       context,
       parsed.data.contactId,
     );
+    const provider = getAIProvider();
     await reserveAiAction(context);
-    const result = await getAIProvider().generateDraft({
+    const result = await provider.generateDraft({
       purpose: "Write an initial concise outreach email to this contact.",
       sourceText: JSON.stringify({
         contact: contactContext,
@@ -356,8 +359,9 @@ export async function generateCallPrep(
   try {
     const context = await requireLeadContext();
     const companyData = await loadCompanyAiData(context, parsed.data.companyId);
+    const provider = getAIProvider();
     await reserveAiAction(context);
-    const result = await getAIProvider().generateDraft({
+    const result = await provider.generateDraft({
       purpose: "Create a compact call preparation sheet for this company.",
       sourceText: JSON.stringify(companyData),
       instructions:

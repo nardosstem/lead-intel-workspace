@@ -407,6 +407,9 @@ migration promotions are recorded as system entries. Invitations and email
 delivery use the Supabase Admin Auth API. Owners/admins can invite members from
 Settings; invitations expire after seven days, are audited, and are accepted
 through the invitation browser bridge before the new member sets a password.
+This flag hides the UI only; for an internal deployment also disable Supabase
+Authentication → Providers → Email → “Allow new users to sign up” so direct
+anonymous `auth.signUp` requests cannot create accounts outside the application.
 Configure both `SUPABASE_SERVICE_ROLE_KEY` and
 `NEXT_PUBLIC_APP_URL` before using this flow. The current profile model
 intentionally supports one organization per Auth user and has no organization
@@ -439,7 +442,7 @@ The workbench includes organization-scoped monitoring targets, normalized news
 items, signal records, scan history, and a provider-neutral `LeadSignal`
 presentation contract. Company detail views show evidence, source links,
 workflow and decision-maker mappings, with reviewed/dismissed status actions.
-Dashboard users can queue an immediate scan or enable weekly monitoring for a
+Dashboard users can queue an immediate scan or enable recurring monitoring for a
 company; RSS feeds are optional per target. New companies are not enrolled
 until a user selects `Monitor company`, which keeps provider usage and source
 terms under explicit workspace control. Existing monitoring target state is
@@ -449,7 +452,7 @@ The approved monitoring design is:
 
 ```text
 GDELT DOC + publisher RSS
-  -> weekly Inngest scan
+  -> daily Inngest due-target dispatcher
   -> deterministic recency/source/ICP ranking
   -> Firecrawl only for the highest-ranked article pages
   -> IAIProvider structured signal extraction
@@ -460,7 +463,8 @@ Execution is checkpointed by organization, target, discovery query, article,
 scrape, AI extraction, and persistence step. A timeout or retry resumes from
 the last completed provider operation instead of replaying an entire
 organization scan or spending the same provider budget again. Firecrawl
-warnings remain visible on the scan record, while an empty scrape is non-fatal.
+configuration failures stop a run; blocked pages and empty scrapes remain
+visible as warnings so other candidates can still be processed.
 
 Signals are limited to AI deployments, vendor partnerships, manual-review
 hiring, public failures, and executive automation commitments. Each persisted
@@ -469,7 +473,7 @@ publication date, likely workflow, and likely decision-maker role. Store
 metadata and short evidence rather than copying full articles; always link back
 to the publisher and review source terms before enabling a production scan.
 
-The scheduler runs in UTC by default using `NEWS_SCAN_CRON`, selects due
+The scheduler runs in UTC by default using `NEWS_SCAN_CRON` (daily by default), selects due
 organization targets, fans each organization into its own durable run, records
 partial-provider warnings, and enforces per-run company/article budgets. Set
 `NEWS_SCAN_ENABLED=1` to enable it (the example file defaults to `0` until

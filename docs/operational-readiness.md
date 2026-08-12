@@ -93,7 +93,7 @@ The pilot is ready only when all of the following are true:
 1. Add CRM sync or outbound-email delivery only with explicit review,
    consent/unsubscribe handling, and engagement tracking requirements.
 2. Raise or enable autonomous news monitoring only after per-run budgets,
-   publisher terms, and alerting are accepted. The weekly workflow and
+   publisher terms, and alerting are accepted. The daily workflow and
    deterministic fallback are already implemented behind `NEWS_SCAN_ENABLED`.
 3. Add organization switching and billing only after the tenant and support
    models are designed.

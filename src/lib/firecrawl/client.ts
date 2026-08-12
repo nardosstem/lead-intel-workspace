@@ -11,6 +11,8 @@ export type FirecrawlScrapeResult = Readonly<{
   sourceUrl: string;
   markdown: string;
   warning?: string;
+  /** Present when Firecrawl failed; empty Markdown from a valid page has no failure. */
+  failure?: "configuration" | "transient" | "target" | "provider";
   truncated: boolean;
 }>;
 
@@ -55,6 +57,7 @@ export class FirecrawlClient {
         markdown: "",
         truncated: false,
         warning: "Firecrawl rejected an unsafe or invalid company URL.",
+        failure: "target",
       };
     }
 
@@ -69,12 +72,26 @@ export class FirecrawlClient {
         markdown: "",
         truncated: false,
         warning: "Firecrawl rejected an unsafe or invalid company URL.",
+        failure: "target",
       };
     }
 
     try {
       const result = await this.client.scrapeUrl(parsedUrl.toString(), { formats: ["markdown"] });
-      const markdown = typeof result.markdown === "string" ? result.markdown : "";
+      const providerResult = result as { markdown?: unknown; success?: unknown; error?: unknown };
+      if (providerResult.success === false || typeof providerResult.error === "string") {
+        const message = typeof providerResult.error === "string" ? providerResult.error : "Firecrawl rejected the scrape.";
+        const isClient = /invalid|unauthori[sz]ed|forbidden|\b400\b|\b401\b|\b403\b|\b404\b|\b422\b|api key|authentication/i.test(message);
+        const isTransient = !isClient;
+        return {
+          sourceUrl: parsedUrl.toString(),
+          markdown: "",
+          truncated: false,
+          warning: isTransient ? "Firecrawl was temporarily unavailable while scraping the website." : "Firecrawl rejected the website scrape request.",
+          failure: isTransient ? "transient" : "provider",
+        };
+      }
+      const markdown = typeof providerResult.markdown === "string" ? providerResult.markdown : "";
       const truncated = markdown.length > MAX_MARKDOWN_LENGTH;
 
       return {
@@ -85,9 +102,16 @@ export class FirecrawlClient {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown Firecrawl error";
-      const warning = /timeout|timed out|abort/i.test(message)
-        ? "Firecrawl timed out while scraping the website. AI enrichment continued with Apollo data."
-        : "Firecrawl could not scrape the website. AI enrichment continued with Apollo data.";
+      const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : undefined;
+      const isClient = status !== undefined
+        ? status >= 400 && status < 500 && status !== 429
+        : /invalid|unauthori[sz]ed|forbidden|\b400\b|\b401\b|\b403\b|\b404\b|\b422\b|api key|authentication/i.test(message);
+      const isTransient = !isClient;
+      const warning = isTransient
+        ? (/timeout|timed out|abort/i.test(message)
+            ? "Firecrawl timed out while scraping the website."
+            : "Firecrawl was temporarily unavailable while scraping the website.")
+        : "Firecrawl rejected the website scrape request.";
 
       console.warn("Firecrawl scrape failed", { url: parsedUrl.toString(), message });
       return {
@@ -95,6 +119,7 @@ export class FirecrawlClient {
         markdown: "",
         truncated: false,
         warning,
+        failure: isTransient ? "transient" : "provider",
       };
     }
   }
@@ -138,8 +163,9 @@ export async function scrapeDomain(domain: string): Promise<FirecrawlScrapeResul
       markdown: "",
       truncated: false,
       warning: message.includes("not configured")
-        ? "Firecrawl is not configured. AI enrichment continued with Apollo data."
-        : "Firecrawl was unavailable. AI enrichment continued with Apollo data.",
+        ? "Firecrawl is not configured."
+        : "Firecrawl was unavailable.",
+      failure: message.includes("not configured") ? "configuration" : "transient",
     };
   }
 }

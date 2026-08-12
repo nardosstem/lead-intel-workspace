@@ -23,14 +23,16 @@ export async function getLeadContext(): Promise<LeadContext | null> {
 
   const db = getDatabase();
   const profile = await db
-    .select({ organizationId: users.organizationId, isActive: users.isActive })
+    .select({ organizationId: users.organizationId, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
 
   const organizationId = profile[0]?.organizationId;
 
-  return organizationId && profile[0]?.isActive ? { userId: user.id, organizationId } : null;
+  return organizationId && profile[0]?.isActive && profile[0]?.passwordSetupAt
+    ? { userId: user.id, organizationId }
+    : null;
 }
 
 /**
@@ -49,13 +51,13 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
 
   const db = getDatabase();
   const existingProfile = await db
-    .select({ organizationId: users.organizationId, isActive: users.isActive })
+    .select({ organizationId: users.organizationId, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
 
   if (existingProfile[0]) {
-    return existingProfile[0].isActive
+    return existingProfile[0].isActive && existingProfile[0].passwordSetupAt
       ? { userId: user.id, organizationId: existingProfile[0].organizationId }
       : null;
   }
@@ -85,13 +87,13 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
     );
 
     const recheckedProfile = await tx
-      .select({ organizationId: users.organizationId, isActive: users.isActive })
+      .select({ organizationId: users.organizationId, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1);
 
     if (recheckedProfile[0]) {
-      return recheckedProfile[0].isActive
+      return recheckedProfile[0].isActive && recheckedProfile[0].passwordSetupAt
         ? { userId: user.id, organizationId: recheckedProfile[0].organizationId }
         : null;
     }
@@ -153,6 +155,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
         email,
         fullName,
         role: "owner",
+        passwordSetupAt: new Date(),
       })
       .onConflictDoNothing()
       .returning({ id: users.id, organizationId: users.organizationId });
@@ -201,7 +204,7 @@ export async function requireLeadContext(): Promise<LeadContext> {
   const user = await requireCurrentUser();
   const db = getDatabase();
   const profile = await db
-    .select({ organizationId: users.organizationId, isActive: users.isActive })
+    .select({ organizationId: users.organizationId, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
@@ -216,6 +219,11 @@ export async function requireLeadContext(): Promise<LeadContext> {
     error.name = "WorkspaceAccessDisabledError";
     throw error;
   }
+  if (!profile[0]?.passwordSetupAt) {
+    const error = new Error("Password setup is required before workspace access.");
+    error.name = "PasswordSetupRequiredError";
+    throw error;
+  }
 
   return { userId: user.id, organizationId };
 }
@@ -224,9 +232,10 @@ export async function requireLeadContext(): Promise<LeadContext> {
 export async function requireLeadTransaction(
   tx: LeadTransaction,
   context: LeadContext,
+  options: Readonly<{ allowPasswordSetupIncomplete?: boolean }> = {},
 ): Promise<void> {
   const profile = await tx
-    .select({ id: users.id, isActive: users.isActive })
+    .select({ id: users.id, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
     .from(users)
     .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
     .for("update")
@@ -241,13 +250,18 @@ export async function requireLeadTransaction(
     error.name = "WorkspaceAccessDisabledError";
     throw error;
   }
+  if (!membership.passwordSetupAt && !options.allowPasswordSetupIncomplete) {
+    const error = new Error("Password setup is required before workspace access.");
+    error.name = "PasswordSetupRequiredError";
+    throw error;
+  }
 }
 
 export async function requireLeadAdminContext(): Promise<LeadContext & { role: "owner" | "admin" }> {
   const user = await requireCurrentUser();
   const db = getDatabase();
   const profile = await db
-    .select({ organizationId: users.organizationId, role: users.role, isActive: users.isActive })
+    .select({ organizationId: users.organizationId, role: users.role, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
@@ -259,6 +273,11 @@ export async function requireLeadAdminContext(): Promise<LeadContext & { role: "
   if (!membership.isActive) {
     const error = new Error("Workspace access is disabled for this account.");
     error.name = "WorkspaceAccessDisabledError";
+    throw error;
+  }
+  if (!membership.passwordSetupAt) {
+    const error = new Error("Password setup is required before workspace access.");
+    error.name = "PasswordSetupRequiredError";
     throw error;
   }
   if (membership.role !== "owner" && membership.role !== "admin") {
@@ -280,7 +299,7 @@ export async function requireLeadAdminTransaction(
   context: LeadContext,
 ): Promise<LeadContext & { role: "owner" | "admin" }> {
   const profile = await tx
-    .select({ organizationId: users.organizationId, role: users.role, isActive: users.isActive })
+    .select({ organizationId: users.organizationId, role: users.role, isActive: users.isActive, passwordSetupAt: users.passwordSetupAt })
     .from(users)
     .where(and(eq(users.id, context.userId), eq(users.organizationId, context.organizationId)))
     .for("update")
@@ -293,6 +312,11 @@ export async function requireLeadAdminTransaction(
   if (!membership.isActive) {
     const error = new Error("Workspace access is disabled for this account.");
     error.name = "WorkspaceAccessDisabledError";
+    throw error;
+  }
+  if (!membership.passwordSetupAt) {
+    const error = new Error("Password setup is required before workspace access.");
+    error.name = "PasswordSetupRequiredError";
     throw error;
   }
   if (membership.role !== "owner" && membership.role !== "admin") {

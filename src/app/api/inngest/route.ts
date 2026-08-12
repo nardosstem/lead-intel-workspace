@@ -2,7 +2,7 @@ import { serve } from "inngest/next";
 
 import { assertInngestDeploymentConfiguration, inngest } from "@/inngest/client";
 import type { NextRequest } from "next/server";
-import { ingestLead } from "@/inngest/functions/ingest-lead";
+import { dispatchQueuedLeadIngestions, ingestLead } from "@/inngest/functions/ingest-lead";
 import {
   scanNewsOrganizationScheduled,
   scanNewsRequested,
@@ -16,7 +16,7 @@ export const maxDuration = 60;
 
 const handlers = serve({
   client: inngest,
-  functions: [ingestLead, scanNewsScheduled, scanNewsOrganizationScheduled, scanNewsRequested],
+  functions: [ingestLead, dispatchQueuedLeadIngestions, scanNewsScheduled, scanNewsOrganizationScheduled, scanNewsRequested],
 });
 
 async function guarded(

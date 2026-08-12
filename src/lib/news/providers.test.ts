@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GdeltClient, NewsSourceError, searchGdelt } from "./gdelt";
-import { parseRss, RssClient } from "./rss";
+import { __rssInternals, parseRss, RssClient } from "./rss";
 import { newsArticleSchema, signalExtractionSchema } from "./types";
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -111,6 +111,7 @@ describe("RSS source", () => {
   it("supports Atom links and fetches feeds with a timeout", async () => {
     let fetched = "";
     const client = new RssClient({
+      lookupImpl: async () => [{ address: "93.184.216.34", family: 4 }],
       fetchImpl: async (input) => {
         fetched = String(input);
         return new Response(
@@ -141,8 +142,30 @@ describe("RSS source", () => {
     });
   });
 
+  it("rejects DNS resolutions into private or link-local address space", async () => {
+    expect(__rssInternals.isPrivateAddress("127.0.0.1")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("169.254.169.254")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("10.0.0.7")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("192.0.0.1")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("198.18.0.1")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("224.0.0.1")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("::1")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("fd00::1")).toBe(true);
+    expect(__rssInternals.isPrivateAddress("93.184.216.34")).toBe(false);
+
+    const client = new RssClient({
+      lookupImpl: async () => [{ address: "169.254.169.254", family: 4 }],
+      fetchImpl: async () => new Response("should not fetch"),
+    });
+    await expect(client.fetch("https://example.com/feed.xml")).rejects.toMatchObject({
+      source: "rss",
+      status: 400,
+    });
+  });
+
   it("returns typed errors for network and HTTP failures", async () => {
     const failing = new RssClient({
+      lookupImpl: async () => [{ address: "93.184.216.34", family: 4 }],
       fetchImpl: async () => {
         throw new Error("timed out");
       },
@@ -153,6 +176,7 @@ describe("RSS source", () => {
     });
 
     const unavailable = new RssClient({
+      lookupImpl: async () => [{ address: "93.184.216.34", family: 4 }],
       fetchImpl: async () => new Response("unavailable", { status: 503 }),
     });
     await expect(unavailable.fetch("https://example.com/feed.xml")).rejects.toMatchObject({

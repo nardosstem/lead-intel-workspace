@@ -39,6 +39,7 @@ import {
   getLeads,
   inviteMember,
   revokeInvitation,
+  resendInvitation,
   updateMemberRole,
   updateMemberStatus,
   setCompanyMonitoring,
@@ -334,6 +335,17 @@ function DashboardView({
           <p className="mt-1 text-sm text-muted-foreground">Prioritize the next conversations.</p>
         </CardHeader>
         <CardContent>
+          {data.latestNewsScan ? (
+              <div className="mb-4 rounded-lg border bg-muted/30 p-3 text-sm" role="status" aria-live="polite">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">Latest scan: <span className="capitalize">{data.latestNewsScan.status}</span></span>
+                <span className="text-xs text-muted-foreground">
+                  {data.latestNewsScan.signalsExtracted} signals · {data.latestNewsScan.candidatesFound} candidates · {shortDate(data.latestNewsScan.createdAt)}
+                </span>
+              </div>
+              {data.latestNewsScan.error ? <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{data.latestNewsScan.error}</p> : null}
+            </div>
+          ) : null}
           {due.length ? (
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {due.map((item) => (
@@ -465,7 +477,7 @@ function AuditView({ logs }: Readonly<{ logs: AuditRecord[] }>) {
       <CardHeader>
         <CardTitle className="text-base">Audit history</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          A tenant-scoped record of company, contact, and pipeline changes.
+          A tenant-scoped record of the latest 100 company, contact, and pipeline changes.
         </p>
       </CardHeader>
       <CardContent>
@@ -641,6 +653,22 @@ function SettingsView({
     });
   }
 
+  function resendPendingInvitation(invitation: OrganizationInvitationRecord) {
+    setInviteError(null);
+    startInviteTransition(async () => {
+      try {
+        const result = await resendInvitation(invitation.id);
+        if (!result.ok) {
+          setInviteError(result.error);
+          return;
+        }
+        toast.success("Invitation delivery retried");
+      } catch {
+        setInviteError("The invitation could not be resent. Try again.");
+      }
+    });
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
       <Card>
@@ -738,9 +766,14 @@ function SettingsView({
                     <span className="block truncate">{invitation.email}</span>
                     <span className="text-xs text-muted-foreground">{invitation.role} · expires {shortDate(invitation.expiresAt)}</span>
                   </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => revokePendingInvitation(invitation)} disabled={settings.currentUserRole === "member" || isInviting}>
-                    Revoke
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => resendPendingInvitation(invitation)} disabled={settings.currentUserRole === "member" || isInviting}>
+                      Resend
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => revokePendingInvitation(invitation)} disabled={settings.currentUserRole === "member" || isInviting}>
+                      Revoke
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -832,7 +865,9 @@ export function LeadWorkbench({
   const [rssFeedUrl, setRssFeedUrl] = useState("");
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineRecord | null>(null);
+  const [followUpDraft, setFollowUpDraft] = useState<string | null>(null);
   const [isPollingIngestion, setIsPollingIngestion] = useState(false);
+  const [isPollingNews, setIsPollingNews] = useState(false);
   const latestReadRef = useRef(0);
   const router = useRouter();
 
@@ -890,6 +925,18 @@ export function LeadWorkbench({
     const timer = window.setInterval(poll, 2_000);
     return () => window.clearInterval(timer);
   }, [isPollingIngestion, listQuery, router]);
+
+  useEffect(() => {
+    const status = data.latestNewsScan?.status;
+    if (!isPollingNews || (status !== "pending" && status !== "running")) return;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      void getLeads(listQuery).then(setData).catch(() => undefined);
+      if (attempts >= 30) setIsPollingNews(false);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [data.latestNewsScan?.status, isPollingNews, listQuery]);
 
   const companyColumns = useMemo<LeadTableColumn<CompanyRecord>[]>(
     () => [
@@ -1173,6 +1220,7 @@ export function LeadWorkbench({
           : current,
       );
       toast.success(result.data.message);
+      setIsPollingIngestion(true);
       refresh();
     });
   }
@@ -1191,6 +1239,8 @@ export function LeadWorkbench({
         return;
       }
       toast.success(result.data.message);
+      setIsPollingNews(true);
+      refresh();
     });
   }
 
@@ -1526,6 +1576,8 @@ export function LeadWorkbench({
               <SignalPanel
                 signals={data.signalsByCompanyId[selectedCompany.id] ?? signalsByCompanyId[selectedCompany.id] ?? []}
                 lastScannedAt={data.monitoringByCompanyId[selectedCompany.id]?.lastScannedAt}
+                isLoading={isRefreshing}
+                onRefresh={startNewsScan}
                 onStatusChange={changeSignalStatus}
               />
               <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
@@ -1706,11 +1758,20 @@ export function LeadWorkbench({
                     <span className="text-xs text-muted-foreground">Next follow-up</span>
                     <Input
                       type="datetime-local"
-                      value={dateTimeLocalValue(selectedPipeline.nextFollowUpAt)}
-                      onChange={(event) => changePipelineFollowUp(selectedPipeline, event.target.value)}
+                      value={followUpDraft ?? dateTimeLocalValue(selectedPipeline.nextFollowUpAt)}
+                      onChange={(event) => setFollowUpDraft(event.target.value)}
                       disabled={isRefreshing}
                       aria-label="Next follow-up date and time"
                     />
+                    {followUpDraft !== null && followUpDraft !== dateTimeLocalValue(selectedPipeline.nextFollowUpAt) ? (
+                      <div className="mt-2 flex gap-2">
+                        <Button type="button" size="sm" onClick={() => {
+                          changePipelineFollowUp(selectedPipeline, followUpDraft);
+                          setFollowUpDraft(null);
+                        }} disabled={isRefreshing}>Save follow-up</Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => setFollowUpDraft(null)} disabled={isRefreshing}>Cancel</Button>
+                      </div>
+                    ) : null}
                   </label>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {fullDate(selectedPipeline.nextFollowUpAt)}

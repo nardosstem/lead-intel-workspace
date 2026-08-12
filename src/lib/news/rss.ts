@@ -1,5 +1,34 @@
 import "server-only";
 
+import { lookup } from "node:dns/promises";
+import type { LookupFunction } from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
+
+type ResolvedAddress = Readonly<{ address: string; family: number }>;
+type RssLookup = (
+  hostname: string,
+  options: Readonly<{ all: true; verbatim: true }>,
+) => Promise<ResolvedAddress[]>;
+
+const safeDnsLookup: LookupFunction = (hostname, _options, callback) => {
+  void lookup(hostname, { all: true, verbatim: true })
+    .then((addresses) => {
+      if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {
+        callback(new Error("RSS feed host resolved to a private address."), "", 0);
+        return;
+      }
+      const address = addresses[0];
+      callback(null, address.address, address.family);
+    })
+    .catch((error: unknown) => callback(error instanceof Error ? error : new Error("RSS host resolution failed."), "", 0));
+};
+
+const rssDispatcher = new Agent({ connect: { lookup: safeDnsLookup } });
+
+function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return undiciFetch(input as string | URL, { ...(init as Record<string, unknown>), dispatcher: rssDispatcher } as never) as unknown as Promise<Response>;
+}
+
 import { isPublicHostname } from "@/lib/domains";
 
 import {
@@ -142,15 +171,18 @@ export function parseRss(xml: string, options: RssParserOptions = {}): NewsArtic
 export type RssFetcherOptions = Readonly<{
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  lookupImpl?: RssLookup;
 }>;
 
 export class RssClient {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly lookupImpl: RssLookup;
 
   constructor(options: RssFetcherOptions = {}) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? safeFetch;
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.lookupImpl = options.lookupImpl ?? (lookup as unknown as RssLookup);
   }
 
   async fetch(url: string, options: RssParserOptions = {}): Promise<NewsArticle[]> {
@@ -167,6 +199,15 @@ export class RssClient {
       !isPublicHostname(parsedUrl.hostname)
     ) {
       throw new NewsSourceError("rss", "RSS feed URL must use a public HTTP or HTTPS host.", 400);
+    }
+    try {
+      const addresses = await this.lookupImpl(parsedUrl.hostname, { all: true, verbatim: true });
+      if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {
+        throw new NewsSourceError("rss", "RSS feed host resolves to a private or unavailable address.", 400);
+      }
+    } catch (error) {
+      if (error instanceof NewsSourceError) throw error;
+      throw new NewsSourceError("rss", "RSS feed host could not be resolved safely.");
     }
     let response: Response;
     try {
@@ -195,3 +236,22 @@ export class RssClient {
     }
   }
 }
+
+function isPrivateAddress(address: string): boolean {
+  const normalized = address.toLowerCase().split("%", 1)[0];
+  const ipv4 = normalized.startsWith("::ffff:") ? normalized.slice(7) : normalized;
+  const parts = ipv4.split(".").map(Number);
+  if (parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    const [first, second] = parts;
+    return first === 0 || first === 10 || first === 127 || first >= 224 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168) ||
+      (first === 192 && second === 0) || (first === 198 && second >= 18 && second <= 19) ||
+      (first === 100 && second >= 64 && second <= 127);
+  }
+  return normalized === "::" || normalized === "::1" || normalized.startsWith("fc") ||
+    normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("ff");
+}
+
+export const __rssInternals = { isPrivateAddress };

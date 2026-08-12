@@ -31,7 +31,14 @@ export function CsvImport({ onImported }: Readonly<{ onImported: () => void }>) 
         }
         toast.success(`${result.data.imported} companies imported`);
         if (result.data.errors.length > 0) {
-          toast.warning(`${result.data.errors.length} CSV rows were skipped`);
+          const preview = result.data.errors
+            .slice(0, 3)
+            .map((error) => `Row ${error.row}: ${error.message}`)
+            .join(" · ");
+          toast.warning(`${result.data.errors.length} CSV rows were skipped`, {
+            description: `${preview}${result.data.errors.length > 3 ? " · More errors are available in the import result." : ""}`,
+            duration: 8_000,
+          });
         }
         onImported();
         if (inputRef.current) inputRef.current.value = "";

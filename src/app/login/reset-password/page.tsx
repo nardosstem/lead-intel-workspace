@@ -10,7 +10,8 @@ export const metadata: Metadata = {
   description: "Set a new password for your Lead Intel Workspace account.",
 };
 
-export default function ResetPasswordPage() {
+export default async function ResetPasswordPage({ searchParams }: Readonly<{ searchParams: Promise<{ required?: string }> }>) {
+  const params = await searchParams;
   return (
     <main className="mx-auto flex w-full max-w-md items-center justify-center py-10">
       <Card className="w-full">
@@ -18,7 +19,7 @@ export default function ResetPasswordPage() {
           <h1 className="font-heading text-xl font-medium">Set a new password</h1>
           <CardDescription>Choose a strong password for your Lead Intel Workspace account.</CardDescription>
         </CardHeader>
-        <CardContent><ResetPasswordForm /></CardContent>
+        <CardContent><ResetPasswordForm required={params.required === "1"} /></CardContent>
       </Card>
     </main>
   );

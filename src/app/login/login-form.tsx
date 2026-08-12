@@ -35,6 +35,9 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
       try {
         const supabase = createBrowserSupabaseClient();
         if (mode === "forgot-password") {
+          // Preserve recovery intent outside mutable query parameters. The
+          // callback consumes and clears this short-lived, callback-scoped
+          // cookie even if an email client strips custom URL parameters.
           const callbackUrl = new URL("/auth/callback", window.location.origin);
           callbackUrl.searchParams.set("next", "/login/reset-password");
           callbackUrl.searchParams.set("flow", "recovery");
@@ -45,6 +48,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
             setError(resetResult.error.message);
             return;
           }
+          document.cookie = "lead_intel_recovery=1; Max-Age=900; Path=/auth/callback; SameSite=Lax";
           setMessage("If an account exists for that email, a password reset link is on its way.");
           return;
         }

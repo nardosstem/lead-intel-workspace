@@ -1,0 +1,2 @@
+ALTER TABLE "signal_scans" ADD COLUMN "run_id" varchar(200);--> statement-breakpoint
+CREATE UNIQUE INDEX "signal_scans_organization_run_uidx" ON "signal_scans" USING btree ("organization_id","run_id");

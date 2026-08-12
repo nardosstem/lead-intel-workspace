@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const navigation = [
-  { label: "Overview", href: "/", icon: LayoutDashboard, enabled: true },
+  { label: "Overview", href: "/leads", icon: LayoutDashboard, enabled: true },
   {
     label: "Lead workbench",
     href: "/leads",

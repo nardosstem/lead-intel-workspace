@@ -42,7 +42,9 @@ import {
   scheduledNewsScanRequested,
 } from "@/inngest/client";
 
-const DEFAULT_CRON = "TZ=UTC 0 7 * * 1";
+// Run daily so targets configured for 1–90 day cadence and provider failures
+// retry on the next due day instead of waiting for the next Monday.
+const DEFAULT_CRON = "TZ=UTC 0 7 * * *";
 const DEFAULT_LOOKBACK_DAYS = 8;
 const DEFAULT_MAX_COMPANIES = 25;
 const DEFAULT_MAX_ARTICLES_PER_COMPANY = 3;
@@ -454,6 +456,7 @@ async function startDurableScan(
   organizationId: string,
   actorUserId: string | undefined,
   reservationKey: string,
+  usageDate: string,
   force = false,
 ): Promise<StartedScan | null> {
   const targets = await loadDueTargets(organizationId, force);
@@ -483,6 +486,7 @@ async function startDurableScan(
           organizationId,
           kind: "news_scan",
           reservationKey,
+          usageDate,
           now,
         });
       } catch (error) {
@@ -492,9 +496,19 @@ async function startDurableScan(
 
       const inserted = await tx
         .insert(signalScans)
-        .values({ organizationId, status: "running", startedAt: now })
+        .values({ organizationId, runId: reservationKey, status: "running", startedAt: now })
+        .onConflictDoNothing({ target: [signalScans.organizationId, signalScans.runId] })
         .returning({ id: signalScans.id });
-      return inserted[0] ?? null;
+      if (inserted[0]) return inserted[0];
+      const existing = await tx
+        .select({ id: signalScans.id })
+        .from(signalScans)
+        .where(and(eq(signalScans.organizationId, organizationId), eq(signalScans.runId, reservationKey)))
+        .limit(1);
+      if (!existing[0]) return null;
+      await tx.update(signalScans).set({ status: "running", startedAt: now, completedAt: null, error: null })
+        .where(and(eq(signalScans.id, existing[0].id), eq(signalScans.organizationId, organizationId)));
+      return existing[0];
     },
     actorUserId,
   );
@@ -555,11 +569,22 @@ async function runDurableTarget(
           markdown: "",
           truncated: false,
           warning: safeError(error),
+          failure: /not configured/i.test(safeError(error)) ? "configuration" : "transient",
         } satisfies FirecrawlScrapeResult);
       }
     });
+    if (scraped.failure === "transient") {
+      throw new Error(scraped.warning ?? "Firecrawl temporarily unavailable.");
+    }
+    if (scraped.failure === "configuration") {
+      throw new NonRetriableError(scraped.warning ?? "Firecrawl could not scrape the article.");
+    }
+    if (scraped.failure === "provider") {
+      throw new NonRetriableError(scraped.warning ?? "Firecrawl rejected the configured provider request.");
+    }
+    if (scraped.failure === "target" && scraped.warning) warnings.push(`Firecrawl ${candidate.canonicalUrl}: ${scraped.warning}`);
     if (scraped.markdown) articlesFetched += 1;
-    if (scraped.warning) warnings.push(`Firecrawl ${candidate.canonicalUrl}: ${scraped.warning}`);
+    if (scraped.warning && scraped.failure !== "target") warnings.push(`Firecrawl ${candidate.canonicalUrl}: ${scraped.warning}`);
 
     const extracted = await step.run(`${stepPrefix}-enrich-${candidateKey}`, async () => {
       let provider: ReturnType<typeof getAIProvider> | null = null;
@@ -616,11 +641,12 @@ async function runDurableOrganizationScan(
   organizationId: string,
   actorUserId: string | undefined,
   reservationKey: string,
+  usageDate: string,
   stepPrefix: string,
   force = false,
 ): Promise<ScanCounts & { warning?: string }> {
   const started = await step.run(`${stepPrefix}-start`, () =>
-    startDurableScan(organizationId, actorUserId, reservationKey, force),
+    startDurableScan(organizationId, actorUserId, reservationKey, usageDate, force),
   );
   if (!started) return { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
 
@@ -667,6 +693,7 @@ export const scanNewsScheduled = inngest.createFunction(
         const event = scheduledNewsScanRequested.create({
           organizationId,
           runId: `scheduled:${organizationId}:${scanDate}`,
+          usageDate: scanDate,
         });
         await event.validate();
         await inngest.send({ name: event.name, data: event.data });
@@ -691,6 +718,7 @@ export const scanNewsOrganizationScheduled = inngest.createFunction(
       event.data.organizationId,
       undefined,
       event.data.runId,
+      event.data.usageDate ?? usageDateKey(),
       "scan-organization",
     );
   },
@@ -711,6 +739,7 @@ export const scanNewsRequested = inngest.createFunction(
       event.data.organizationId,
       event.data.actorUserId,
       event.data.runId,
+      event.data.usageDate ?? usageDateKey(),
       "scan-organization",
       event.data.force,
     );

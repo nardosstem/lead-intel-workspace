@@ -120,6 +120,34 @@
       "when": 1785987611628,
       "tag": "0016_flaky_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786030000000,
+      "tag": "0017_redact_audit_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786031000000,
+      "tag": "0018_password_setup_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786509443265,
+      "tag": "0019_signal_scan_run_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786510193565,
+      "tag": "0020_ambiguous_champions",
+      "breakpoints": true
     }
   ]
 }

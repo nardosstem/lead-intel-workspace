@@ -9,6 +9,8 @@ export const leadIngestRequestedDataSchema = z.object({
   organizationId: z.uuid(),
   actorUserId: z.uuid(),
   runId: z.uuid(),
+  /** UTC usage bucket reserved by the foreground request. */
+  usageDate: z.iso.date(),
 });
 
 export type LeadIngestRequestedData = z.infer<
@@ -25,6 +27,8 @@ export const newsScanRequestedDataSchema = z.object({
   actorUserId: z.uuid(),
   /** Stable across Inngest retries, unique for each user-requested scan. */
   runId: z.uuid(),
+  /** UTC usage bucket reserved by the foreground request. */
+  usageDate: z.iso.date(),
   force: z.boolean().optional(),
 });
 
@@ -37,6 +41,7 @@ export const newsScanRequested = eventType("lead.news.scan.requested", {
 export const scheduledNewsScanRequestedDataSchema = z.object({
   organizationId: z.uuid(),
   runId: z.string().min(1).max(200),
+  usageDate: z.iso.date(),
 });
 
 export const scheduledNewsScanRequested = eventType("lead.news.scheduled.scan.requested", {

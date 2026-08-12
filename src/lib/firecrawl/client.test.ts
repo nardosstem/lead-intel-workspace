@@ -46,6 +46,29 @@ describe("Firecrawl client", () => {
     expect(requestedOptions).toEqual({ formats: ["markdown"] });
   });
 
+  it("classifies an SDK error response as a terminal provider result", async () => {
+    const client = new FirecrawlClient({
+      apiKey: "firecrawl-test-key",
+      client: { scrapeUrl: async () => ({ success: false, error: "invalid API key" } as never) },
+    });
+    const result = await client.scrapeUrl("https://example.com");
+    expect(result.failure).toBe("provider");
+    expect(result.markdown).toBe("");
+  });
+
+  it("classifies unsafe target URLs separately from provider failures", async () => {
+    const client = new FirecrawlClient({ apiKey: "firecrawl-test-key", client: { scrapeUrl: async () => ({ markdown: "unused" }) } });
+    await expect(client.scrapeUrl("http://127.0.0.1:3000")).resolves.toMatchObject({ failure: "target" });
+  });
+
+  it("treats provider server errors without a numeric status as transient", async () => {
+    const client = new FirecrawlClient({
+      apiKey: "firecrawl-test-key",
+      client: { scrapeUrl: async () => ({ success: false, error: "Internal Server Error" } as never) },
+    });
+    await expect(client.scrapeUrl("https://example.com")).resolves.toMatchObject({ failure: "transient" });
+  });
+
   it("rejects private domains before invoking Firecrawl", async () => {
     const result = await scrapeDomain("http://localhost:3000");
 

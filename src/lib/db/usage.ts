@@ -57,9 +57,13 @@ export async function reserveOrganizationUsage(
     kind: OrganizationUsageKind;
     reservationKey: string;
     now?: Date;
+    usageDate?: string;
   }>,
 ): Promise<Readonly<{ usageDate: string; count: number; limit: number }>> {
-  const usageDate = usageDateKey(input.now);
+  const usageDate = input.usageDate ?? usageDateKey(input.now);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(usageDate)) {
+    throw new Error("Usage date must be an ISO calendar date.");
+  }
   const limit = organizationUsageLimit(input.kind);
 
   // A short transaction-scoped advisory lock makes the count-and-insert
@@ -142,9 +146,10 @@ export async function releaseOrganizationUsage(
     kind: OrganizationUsageKind;
     reservationKey: string;
     now?: Date;
+    usageDate?: string;
   }>,
 ): Promise<void> {
-  const usageDate = usageDateKey(input.now);
+  const usageDate = input.usageDate ?? usageDateKey(input.now);
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`usage:${input.organizationId}:${usageDate}:${input.kind}`}, 0))`,
   );

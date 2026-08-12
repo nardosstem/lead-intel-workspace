@@ -4,13 +4,26 @@ import { createClient } from "@/lib/auth/server";
 import { safeNextPath } from "@/lib/auth/redirect";
 import { acceptPendingOrganizationInvitation, InvitationConflictError } from "@/lib/auth/invitations";
 
+function clearRecoveryCookie(response: NextResponse): NextResponse {
+  response.cookies.set("lead_intel_recovery", "", {
+    path: "/auth/callback",
+    maxAge: 0,
+    sameSite: "lax",
+  });
+  return response;
+}
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const flow = request.nextUrl.searchParams.get("flow");
   const authType = request.nextUrl.searchParams.get("type");
-  const isRecovery = flow === "recovery" || authType === "recovery";
+  const recoveryCookie = request.cookies.get("lead_intel_recovery")?.value === "1";
   const isSignup = flow === "signup" || authType === "signup";
   const isInvitation = flow === "invite" || authType === "invite";
+  const isExplicitRecovery = flow === "recovery" || authType === "recovery";
+  // A callback with an explicit signup/invite marker wins over a stale
+  // browser recovery cookie from an earlier reset request.
+  const isRecovery = isExplicitRecovery || (recoveryCookie && !isSignup && !isInvitation);
   const requiresPasswordSetup = isRecovery || isInvitation;
   // Recovery must never fall through to the generic `/leads` default. Some
   // Supabase email templates preserve `type=recovery` but omit the custom
@@ -24,7 +37,9 @@ export async function GET(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", nextPath);
     loginUrl.searchParams.set("confirmed", "1");
-    return NextResponse.redirect(loginUrl);
+    const response = NextResponse.redirect(loginUrl);
+    if (recoveryCookie) clearRecoveryCookie(response);
+    return response;
   };
 
   async function acceptInvitationForUser(
@@ -34,7 +49,10 @@ export async function GET(request: NextRequest) {
     // Supabase marks admin-invited users with `invited_at`. Treat that
     // server-verified claim as authoritative so an invitee cannot remove or
     // rewrite the mutable `flow` query parameter to bypass tenant acceptance.
-    if (isRecovery || (!isInvitation && !user.invited_at)) return null;
+    // A stale browser recovery cookie must not suppress invitation acceptance:
+    // an invitee is identified by the server-verified `invited_at` claim, not
+    // by mutable query parameters or a previous reset request in this browser.
+    if (isExplicitRecovery || (!isInvitation && !user.invited_at)) return null;
 
     try {
       if (!user.email) {
@@ -81,10 +99,12 @@ export async function GET(request: NextRequest) {
         // not depend on application-database availability or invitation state;
         // otherwise a transient workspace DB outage can strand a user with a
         // valid recovery link but no way to set a new password.
-        if (user && !isRecovery && (isInvitation || Boolean(user.invited_at))) {
+        if (user && !isExplicitRecovery && (isInvitation || Boolean(user.invited_at))) {
           const invitationFailure = await acceptInvitationForUser(supabase, user);
           if (invitationFailure) return invitationFailure;
-          return NextResponse.redirect(new URL("/login/reset-password", request.url));
+          const response = NextResponse.redirect(new URL("/login/reset-password", request.url));
+          if (recoveryCookie) clearRecoveryCookie(response);
+          return response;
         }
         if (!user && (isInvitation || isSignup)) {
           return NextResponse.redirect(new URL("/login?next=%2Fleads&error=auth_callback_failed", request.url));
@@ -96,7 +116,9 @@ export async function GET(request: NextRequest) {
           await supabase.auth.signOut().catch(() => undefined);
           return redirectAfterSignup();
         }
-        return NextResponse.redirect(new URL(nextPath, request.url));
+        const response = NextResponse.redirect(new URL(nextPath, request.url));
+        if (recoveryCookie) clearRecoveryCookie(response);
+        return response;
       }
     } catch {
       // Return a safe, user-facing error without leaking provider details.

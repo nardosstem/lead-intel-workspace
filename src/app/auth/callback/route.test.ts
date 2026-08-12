@@ -95,6 +95,20 @@ describe("auth callback route", () => {
     );
   });
 
+  it("keeps recovery callbacks on the password form when the query marker is removed", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: { session: { user: { id: "user-1", email: "owner@example.com" } } },
+      error: null,
+    });
+    const recoveryRequest = request("/auth/callback?code=recovery-code");
+    recoveryRequest.cookies.set("lead_intel_recovery", "1");
+    const response = await GET(recoveryRequest);
+    expect(response.headers.get("location")).toBe(
+      "https://lead-intel-workspace.vercel.app/login/reset-password",
+    );
+    expect(String(response.headers.get("set-cookie"))).toMatch(/lead_intel_recovery=.*Path=\/auth\/callback.*Max-Age=0/i);
+  });
+
   it("accepts PKCE-compatible invitations before sending invitees to set a password", async () => {
     exchangeCodeForSession.mockResolvedValue({
       data: { session: { user: { id: "user-1", email: "invitee@example.com" } } },
@@ -193,5 +207,40 @@ describe("auth callback route", () => {
       userId: "user-1",
       email: "invitee@example.com",
     });
+  });
+
+  it("does not let a stale recovery cookie bypass an invitation", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: { session: { user: { id: "user-1", email: "invitee@example.com", invited_at: "2026-01-01T00:00:00Z" } } },
+      error: null,
+    });
+    const invitationRequest = request("/auth/callback?code=invite-code");
+    invitationRequest.cookies.set("lead_intel_recovery", "1");
+
+    const response = await GET(invitationRequest);
+
+    expect(response.headers.get("location")).toBe(
+      "https://lead-intel-workspace.vercel.app/login/reset-password",
+    );
+    expect(acceptPendingOrganizationInvitation).toHaveBeenCalledWith({
+      userId: "user-1",
+      email: "invitee@example.com",
+    });
+  });
+
+  it("does not let a stale recovery cookie redirect a signup confirmation", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: { session: { user: { id: "user-1", email: "owner@example.com" } } },
+      error: null,
+    });
+    const signupRequest = request("/auth/callback?code=signup-code&flow=signup");
+    signupRequest.cookies.set("lead_intel_recovery", "1");
+
+    const response = await GET(signupRequest);
+
+    expect(response.headers.get("location")).toBe(
+      "https://lead-intel-workspace.vercel.app/login?next=%2Fleads&confirmed=1",
+    );
+    expect(signOut).toHaveBeenCalled();
   });
 });

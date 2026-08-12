@@ -5,9 +5,10 @@ This directory is owned by Drizzle Kit. Generate migrations with
 
 The initial migration also contains the foreign key from `public.users.id` to
 Supabase's managed `auth.users.id`. Do not add the `auth` schema to Drizzle's
-managed schema exports. Lead tables use database triggers to append before/after
-snapshots to `audit_logs`; application mutations set actor and organization
-transaction context before changing rows.
+managed schema exports. Lead tables use database triggers to append bounded
+before/after snapshots to `audit_logs`; application mutations set actor and
+organization transaction context before changing rows. Contact email, LinkedIn,
+notes, and generated outreach are excluded from future snapshots.
 
 Migration `0003_closed_chamber.sql` adds durable enrichment state to companies:
 processing/complete status, ICP score, pain points, outreach draft, and the
@@ -56,7 +57,7 @@ demote an owner before deactivating that account. Reactivation and deactivation
 are audited tenant mutations.
 
 Migration `0012_*.sql` adds organization invitations with an expiring,
-audited lifecycle (`pending`, `accepted`, `failed`, or `revoked`). Invitations
+audited lifecycle (`pending`—including uncertain email delivery—`accepted`, `failed`, or `revoked`). Invitations
 are delivered through the Supabase Admin Auth API, and acceptance creates the
 `public.users` profile only after the Auth callback verifies the session. The
 database keeps invitations tenant-scoped and disallows inviting an owner role.
@@ -72,3 +73,13 @@ remain auditable.
 Migration `0016_*.sql` adds a tenant-scoped UTC usage ledger for domain
 ingestion, news scans, and AI actions. Reservation keys make retries
 idempotent; the ledger is also covered by the shared audit trigger.
+
+Migration `0018_*.sql` adds `users.password_setup_at`; profiles that can be
+identified as legacy non-invite members are backfilled, while ambiguous
+accepted-invite profiles remain outside the workbench until they complete the
+initial-password flow. Review those profiles operationally after migration.
+
+Migration `0019_*.sql` adds a tenant-scoped `signal_scans.run_id` so queued
+manual scans have a durable status row before their Inngest event is delivered.
+Migration `0020_*.sql` adds the audited ingestion outbox and a five-minute
+dispatcher that retries queued Apollo requests after an interrupted HTTP handoff.

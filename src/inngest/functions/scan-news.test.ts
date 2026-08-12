@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe("news scan workflows", () => {
-  it("registers a singleton weekly schedule and tenant concurrency key", () => {
+  it("registers a singleton daily schedule and tenant concurrency key", () => {
     expect(scanNewsScheduled.opts.concurrency).toEqual({ limit: 1, scope: "fn" });
     expect(scanNewsScheduled.opts.triggers).toHaveLength(1);
     expect(scanNewsRequested.opts.concurrency).toEqual({
@@ -31,6 +31,7 @@ describe("news scan workflows", () => {
       organizationId: "00000000-0000-4000-8000-000000000001",
       actorUserId: "00000000-0000-4000-8000-000000000002",
       runId: "00000000-0000-4000-8000-000000000003",
+      usageDate: "2026-08-11",
       force: false,
     });
 
@@ -39,6 +40,7 @@ describe("news scan workflows", () => {
       organizationId: "not-a-uuid",
       actorUserId: "also-not-a-uuid",
       runId: "still-not-a-uuid",
+      usageDate: "2026-08-11",
       force: false,
     });
     await expect(invalidEvent.validate()).rejects.toThrow();
@@ -49,6 +51,7 @@ describe("news scan workflows", () => {
       organizationId: "00000000-0000-4000-8000-000000000001",
       actorUserId: "00000000-0000-4000-8000-000000000002",
       runId: "00000000-0000-4000-8000-000000000003",
+      usageDate: "2026-08-11",
       force: true,
     });
     await expect(event.validate()).resolves.toBeUndefined();

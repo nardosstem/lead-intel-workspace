@@ -76,8 +76,8 @@ async function verifyBoundaries() {
                 values (${ids.userA})
               `;
               await savepoint`
-                insert into public.users (id, organization_id, email, full_name, role)
-                values (${ids.userA}, ${ids.organizationA}, 'boundary-a@example.invalid', 'Boundary Owner', 'owner')
+                insert into public.users (id, organization_id, email, full_name, role, password_setup_at)
+                values (${ids.userA}, ${ids.organizationA}, 'boundary-a@example.invalid', 'Boundary Owner', 'owner', now())
               `;
             });
             auditTriggerAvailable = true;

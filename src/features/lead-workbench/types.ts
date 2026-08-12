@@ -125,6 +125,17 @@ export type CompanyMonitoringRecord = Readonly<{
   nextScanAt: string | null;
 }>;
 
+export type LatestNewsScan = Readonly<{
+  runId: string | null;
+  status: "pending" | "running" | "completed" | "failed";
+  createdAt: string;
+  completedAt: string | null;
+  candidatesFound: number;
+  articlesFetched: number;
+  signalsExtracted: number;
+  error: string | null;
+}>;
+
 export type WorkbenchMetrics = Readonly<{
   totalCompanies: number;
   totalContacts: number;
@@ -149,6 +160,7 @@ export type WorkbenchSnapshot = {
   auditLogs: AuditRecord[];
   companyOptions: CompanyOption[];
   monitoringByCompanyId: Readonly<Record<string, CompanyMonitoringRecord>>;
+  latestNewsScan: LatestNewsScan | null;
   metrics: WorkbenchMetrics;
   signalsByCompanyId: Readonly<Record<string, import("./signal-types").LeadSignal[]>>;
   pagination: Readonly<{
@@ -191,6 +203,7 @@ export const emptyWorkbenchSnapshot: WorkbenchSnapshot = {
   auditLogs: [],
   companyOptions: [],
   monitoringByCompanyId: {},
+  latestNewsScan: null,
   metrics: {
     totalCompanies: 0,
     totalContacts: 0,

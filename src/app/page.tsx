@@ -1,4 +1,6 @@
 import { Bot, Database, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 import {
   Card,
@@ -64,6 +66,8 @@ export default function HomePage() {
           </Card>
         ))}
       </section>
+
+      <Button render={<Link href="/leads" />}>Open lead workbench</Button>
     </div>
   );
 }

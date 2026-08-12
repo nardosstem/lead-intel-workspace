@@ -1,5 +1,5 @@
 import { and, eq, or, sql } from "drizzle-orm";
-import { NonRetriableError } from "inngest";
+import { cron, NonRetriableError } from "inngest";
 import { z } from "zod";
 
 import { inngest, leadIngestRequested } from "@/inngest/client";
@@ -16,6 +16,8 @@ import {
   auditLogs,
   companies,
   contacts,
+  getDatabase,
+  ingestionRuns,
   organizations,
   pipeline,
   users,
@@ -25,6 +27,7 @@ import { isAiActionsEnabled, isLeadIngestionEnabled } from "@/lib/runtime-contro
 import {
   OrganizationUsageLimitError,
   reserveOrganizationUsage,
+  usageDateKey,
 } from "@/lib/db/usage";
 
 import {
@@ -47,6 +50,7 @@ type InitialLeadData = Readonly<{
 type EnrichmentData = z.infer<typeof aiEnrichmentSchema>;
 
 export const automaticEnrichmentDataClassification = "public" as const;
+export const MAX_DISPATCH_ATTEMPTS = 5;
 
 /**
  * Automatic ingestion must remain useful with the default free Gemini setup.
@@ -106,6 +110,14 @@ export function toWorkflowError(error: unknown): unknown {
   return error;
 }
 
+export function toFirecrawlWorkflowError(scrape: FirecrawlScrapeResult): Error | null {
+  if (scrape.failure === "transient") return new Error("Firecrawl temporarily unavailable.");
+  if (scrape.failure === "configuration" || scrape.failure === "provider") {
+    return new NonRetriableError(scrape.warning ?? "Firecrawl rejected the configured provider request.");
+  }
+  return null;
+}
+
 function normalizeComparable(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized || null;
@@ -132,8 +144,11 @@ async function initializeIngestion(
   domain: string,
   context: LeadContext,
   runId: string,
+  usageDate: string,
 ): Promise<string> {
   return withLeadMutationContext(context, async (tx) => {
+    await tx.update(ingestionRuns).set({ status: "processing", lastAttemptAt: new Date() })
+      .where(and(eq(ingestionRuns.id, runId), eq(ingestionRuns.organizationId, context.organizationId)));
     const actor = await tx
       .select({ id: users.id, isActive: users.isActive })
       .from(users)
@@ -153,8 +168,9 @@ async function initializeIngestion(
     try {
       await reserveOrganizationUsage(tx, {
         organizationId: context.organizationId,
-        kind: "domain_ingestion",
-        reservationKey: runId,
+      kind: "domain_ingestion",
+      reservationKey: runId,
+      usageDate: usageDate || usageDateKey(),
       });
     } catch (error) {
       if (error instanceof OrganizationUsageLimitError) {
@@ -178,7 +194,7 @@ async function initializeIngestion(
     );
 
     const existing = await tx
-      .select({ id: companies.id })
+      .select({ id: companies.id, enrichmentStatus: companies.enrichmentStatus, enrichmentRunId: companies.enrichmentRunId })
       .from(companies)
       .where(
         and(
@@ -193,6 +209,13 @@ async function initializeIngestion(
         ),
       )
       .limit(1);
+
+    if (existing[0]?.enrichmentStatus === "processing" && existing[0].enrichmentRunId !== runId) {
+      throw new NonRetriableError("A lead ingestion for this domain is already in progress.");
+    }
+    if (existing[0]?.enrichmentStatus === "complete" && existing[0].enrichmentRunId !== runId) {
+      throw new NonRetriableError("This domain is already enriched in the workspace.");
+    }
 
     const companyId = existing[0]?.id ?? (await tx
       .insert(companies)
@@ -538,23 +561,27 @@ export const ingestLead = inngest.createFunction(
       userId: event.data.actorUserId,
     };
     const runId = event.data.runId;
-    const placeholderCompanyId = await step.run("initialize-ingestion", async () =>
-      initializeIngestion(event.data.domain, context, runId),
-    );
-
+    let placeholderCompanyId: string | null = null;
     try {
+      placeholderCompanyId = await step.run("initialize-ingestion", async () =>
+        initializeIngestion(event.data.domain, context, runId, event.data.usageDate ?? usageDateKey()),
+      );
+      if (!placeholderCompanyId) throw new NonRetriableError("Ingestion company initialization failed.");
+      const companyId = placeholderCompanyId;
       const apolloData = await step.run("fetch-apollo-data", async () =>
         ingestApolloLeads(event.data.domain, event.data.targetTitles),
       );
 
       const initialData = await step.run("save-initial-data", async () =>
-        saveInitialData(apolloData, context, placeholderCompanyId, runId),
+        saveInitialData(apolloData, context, companyId, runId),
       );
 
       const scrape: FirecrawlScrapeResult = await step.run(
         "scrape-website",
         async () => scrapeDomain(apolloData.domain),
       );
+      const firecrawlError = toFirecrawlWorkflowError(scrape);
+      if (firecrawlError) throw firecrawlError;
 
       const enrichment: EnrichmentData = await step.run(
         "ai-enrichment",
@@ -628,6 +655,9 @@ export const ingestLead = inngest.createFunction(
             },
           });
 
+          await tx.update(ingestionRuns).set({ status: "complete", lastError: null })
+            .where(and(eq(ingestionRuns.id, runId), eq(ingestionRuns.organizationId, context.organizationId)));
+
           return updated[0];
         }),
       );
@@ -651,13 +681,25 @@ export const ingestLead = inngest.createFunction(
       if (workflowError instanceof NonRetriableError || finalAttempt) {
         try {
           await step.run("mark-enrichment-failed", async () => {
-            await markEnrichmentFailed(
-              context,
-              placeholderCompanyId,
-              event.data.domain,
-              runId,
-              error,
-            );
+            if (placeholderCompanyId) {
+              await markEnrichmentFailed(
+                context,
+                placeholderCompanyId,
+                event.data.domain,
+                runId,
+                error,
+              );
+            }
+            await getDatabase().update(ingestionRuns).set({ status: "failed", lastError: safeEnrichmentError(error), lastAttemptAt: new Date() })
+              .where(and(
+                eq(ingestionRuns.id, runId),
+                eq(ingestionRuns.organizationId, context.organizationId),
+                or(
+                  eq(ingestionRuns.status, "queued"),
+                  eq(ingestionRuns.status, "processing"),
+                  eq(ingestionRuns.status, "dispatched"),
+                ),
+              ));
           });
         } catch (failureError) {
           console.error("Unable to mark lead enrichment as failed", {
@@ -668,5 +710,79 @@ export const ingestLead = inngest.createFunction(
       }
       throw workflowError;
     }
+  },
+);
+
+/** Retries queued foreground requests if the original HTTP handoff was interrupted. */
+export const dispatchQueuedLeadIngestions = inngest.createFunction(
+  {
+    id: "dispatch-queued-lead-ingestions",
+    name: "Dispatch queued lead ingestion requests",
+    triggers: [cron("TZ=UTC */5 * * * *")],
+    concurrency: { limit: 1, scope: "fn" },
+  },
+  async ({ step }) => {
+    if (!isLeadIngestionEnabled()) return { skipped: true, reason: "LEAD_INGESTION_ENABLED=0" };
+    const queued = await step.run("load-queued-ingestions", async () => getDatabase()
+      .select()
+      .from(ingestionRuns)
+      .where(and(
+        or(
+          eq(ingestionRuns.status, "queued"),
+          and(
+            eq(ingestionRuns.status, "dispatched"),
+            sql`${ingestionRuns.lastAttemptAt} < now() - interval '10 minutes'`,
+          ),
+        ),
+        sql`${ingestionRuns.nextAttemptAt} <= now()`,
+      ))
+      .orderBy(ingestionRuns.createdAt)
+      .limit(50));
+    let dispatched = 0;
+    for (const run of queued) {
+      await step.run(`dispatch-${run.id}`, async () => {
+        if (run.attempts >= MAX_DISPATCH_ATTEMPTS) {
+          await getDatabase().update(ingestionRuns).set({
+            status: "failed",
+            lastError: "Background event delivery exceeded the retry limit.",
+            lastAttemptAt: new Date(),
+          }).where(and(
+            eq(ingestionRuns.id, run.id),
+            or(eq(ingestionRuns.status, "queued"), eq(ingestionRuns.status, "dispatched")),
+          ));
+          return;
+        }
+        const claimed = await getDatabase().update(ingestionRuns).set({
+          status: "dispatched",
+          attempts: sql`${ingestionRuns.attempts} + 1`,
+          lastAttemptAt: new Date(),
+          nextAttemptAt: new Date(Date.now() + 10 * 60 * 1_000),
+        }).where(and(
+          eq(ingestionRuns.id, run.id),
+          or(eq(ingestionRuns.status, "queued"), eq(ingestionRuns.status, "dispatched")),
+        )).returning({ id: ingestionRuns.id });
+        if (!claimed[0]) return;
+        const event = leadIngestRequested.create({
+          domain: run.domain,
+          targetTitles: run.targetTitles,
+          organizationId: run.organizationId,
+          actorUserId: run.actorUserId,
+          runId: run.id,
+          usageDate: run.usageDate,
+        });
+        await event.validate();
+        try {
+          await inngest.send({ name: event.name, data: event.data });
+          await getDatabase().update(ingestionRuns).set({ lastError: null })
+            .where(and(eq(ingestionRuns.id, run.id), eq(ingestionRuns.status, "dispatched")));
+        } catch (error) {
+          await getDatabase().update(ingestionRuns).set({ lastError: "Background event delivery failed." })
+            .where(and(eq(ingestionRuns.id, run.id), eq(ingestionRuns.status, "dispatched")));
+          throw error;
+        }
+      });
+      dispatched += 1;
+    }
+    return { queued: queued.length, dispatched };
   },
 );
