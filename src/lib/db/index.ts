@@ -19,7 +19,13 @@ const globalForDatabase = globalThis as typeof globalThis & {
 
 function createDatabaseConnection(): DatabaseConnection {
   const client = postgres(getServerEnvironment().DATABASE_URL, {
-    max: 10,
+    // Vercel functions are short-lived and Supabase's session pooler has a
+    // small per-project connection budget. A single shared connection per
+    // warm function is sufficient: postgres.js queues concurrent queries on
+    // the client, while avoiding one pool per parallel server render.
+    max: 1,
+    idle_timeout: 20,
+    connect_timeout: 10,
     prepare: false,
   });
 
