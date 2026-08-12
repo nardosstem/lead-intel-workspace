@@ -135,6 +135,10 @@ describe("RSS source", () => {
       source: "rss",
       status: 400,
     });
+    await expect(client.fetch("http://example.com/feed.xml")).rejects.toMatchObject({
+      source: "rss",
+      status: 400,
+    });
   });
 
   it("returns typed errors for network and HTTP failures", async () => {

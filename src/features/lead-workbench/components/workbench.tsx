@@ -860,13 +860,14 @@ export function LeadWorkbench({
           if (readId === latestReadRef.current) setData(next);
         })
         .catch(() => {
-          // The foreground workspace remains usable with its last known data;
-          // the next manual refresh will surface a current server response.
+          // Keep the last known workspace visible during a transient database
+          // or network outage. A subsequent foreground action will surface an
+          // authentication/access failure without silently replacing the view.
         });
     }, 5_000);
 
     return () => window.clearInterval(refreshTimer);
-  }, [hasActiveEnrichment, listQuery]);
+  }, [hasActiveEnrichment, listQuery, router]);
 
   useEffect(() => {
     if (!isPollingIngestion) return;
@@ -888,7 +889,7 @@ export function LeadWorkbench({
     poll();
     const timer = window.setInterval(poll, 2_000);
     return () => window.clearInterval(timer);
-  }, [isPollingIngestion, listQuery]);
+  }, [isPollingIngestion, listQuery, router]);
 
   const companyColumns = useMemo<LeadTableColumn<CompanyRecord>[]>(
     () => [
@@ -915,6 +916,7 @@ export function LeadWorkbench({
             type="button"
             variant="ghost"
             size="sm"
+            aria-label={`View ${row.name}`}
             onClick={(event) => {
               event.stopPropagation();
               openCompany(row);
@@ -971,6 +973,7 @@ export function LeadWorkbench({
             type="button"
             variant="ghost"
             size="sm"
+            aria-label={`View ${row.name}`}
             onClick={(event) => {
               event.stopPropagation();
               setSelectedContact(row);
@@ -1082,7 +1085,13 @@ export function LeadWorkbench({
 
   function changePipelineStage(item: PipelineRecord, stage: PipelineStage) {
     startRefresh(async () => {
-      const result = await updatePipeline({ id: item.id, stage, nextFollowUpAt: item.nextFollowUpAt });
+      let result;
+      try {
+        result = await updatePipeline({ id: item.id, stage, nextFollowUpAt: item.nextFollowUpAt });
+      } catch {
+        toast.error("Pipeline update failed. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1105,11 +1114,17 @@ export function LeadWorkbench({
 
   function changePipelineFollowUp(item: PipelineRecord, value: string) {
     startRefresh(async () => {
-      const result = await updatePipeline({
-        id: item.id,
-        stage: item.stage,
-        nextFollowUpAt: value ? new Date(value).toISOString() : null,
-      });
+      let result;
+      try {
+        result = await updatePipeline({
+          id: item.id,
+          stage: item.stage,
+          nextFollowUpAt: value ? new Date(value).toISOString() : null,
+        });
+      } catch {
+        toast.error("Follow-up update failed. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1140,7 +1155,13 @@ export function LeadWorkbench({
     }
 
     startRefresh(async () => {
-      const result = await triggerDomainIngestion(domain);
+      let result;
+      try {
+        result = await triggerDomainIngestion(domain);
+      } catch {
+        toast.error("Ingestion could not be started. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1158,7 +1179,13 @@ export function LeadWorkbench({
 
   function startNewsScan() {
     startRefresh(async () => {
-      const result = await triggerNewsScan();
+      let result;
+      try {
+        result = await triggerNewsScan();
+      } catch {
+        toast.error("News scan could not be started. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1169,7 +1196,13 @@ export function LeadWorkbench({
 
   function monitorCompany(company: CompanyRecord) {
     startRefresh(async () => {
-      const result = await setCompanyMonitoring({ companyId: company.id, enabled: true });
+      let result;
+      try {
+        result = await setCompanyMonitoring({ companyId: company.id, enabled: true });
+      } catch {
+        toast.error("Monitoring could not be enabled. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1181,7 +1214,13 @@ export function LeadWorkbench({
 
   function pauseCompanyMonitoring(company: CompanyRecord) {
     startRefresh(async () => {
-      const result = await setCompanyMonitoring({ companyId: company.id, enabled: false });
+      let result;
+      try {
+        result = await setCompanyMonitoring({ companyId: company.id, enabled: false });
+      } catch {
+        toast.error("Monitoring could not be paused. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1193,11 +1232,17 @@ export function LeadWorkbench({
 
   function saveCompanyMonitoring(company: CompanyRecord) {
     startRefresh(async () => {
-      const result = await setCompanyMonitoring({
-        companyId: company.id,
-        enabled: true,
-        rssFeedUrl: rssFeedUrl.trim() || null,
-      });
+      let result;
+      try {
+        result = await setCompanyMonitoring({
+          companyId: company.id,
+          enabled: true,
+          rssFeedUrl: rssFeedUrl.trim() || null,
+        });
+      } catch {
+        toast.error("Monitoring settings could not be saved. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1209,7 +1254,13 @@ export function LeadWorkbench({
 
   function changeSignalStatus(signalId: string, status: "reviewed" | "dismissed") {
     startRefresh(async () => {
-      const result = await updateLeadSignalStatus({ id: signalId, status });
+      let result;
+      try {
+        result = await updateLeadSignalStatus({ id: signalId, status });
+      } catch {
+        toast.error("Signal update failed. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -1234,7 +1285,13 @@ export function LeadWorkbench({
   function confirmDeleteCompany(company: CompanyRecord) {
     if (!window.confirm(`Delete ${company.name} and its contacts?`)) return;
     startRefresh(async () => {
-      const result = await deleteCompany(company.id);
+      let result;
+      try {
+        result = await deleteCompany(company.id);
+      } catch {
+        toast.error("Company could not be deleted. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) toast.error(result.error);
       else {
         toast.success("Company deleted");
@@ -1247,7 +1304,13 @@ export function LeadWorkbench({
   function confirmDeleteContact(contact: ContactRecord) {
     if (!window.confirm(`Delete ${contact.name}?`)) return;
     startRefresh(async () => {
-      const result = await deleteContact(contact.id);
+      let result;
+      try {
+        result = await deleteContact(contact.id);
+      } catch {
+        toast.error("Contact could not be deleted. Check your connection and try again.");
+        return;
+      }
       if (!result.ok) toast.error(result.error);
       else {
         toast.success("Contact deleted");

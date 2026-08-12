@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { newsScanRequested } from "@/inngest/client";
 
-import { __newsScanInternals, scanNewsRequested, scanNewsScheduled } from "./scan-news";
+import {
+  __newsScanInternals,
+  scanNewsOrganizationScheduled,
+  scanNewsRequested,
+  scanNewsScheduled,
+} from "./scan-news";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -18,6 +23,7 @@ describe("news scan workflows", () => {
       scope: "fn",
     });
     expect(scanNewsRequested.opts.idempotency).toBe("event.data.runId");
+    expect(scanNewsOrganizationScheduled.opts.idempotency).toBe("event.data.runId");
   });
 
   it("validates manual scan events at the event boundary", async () => {
@@ -25,6 +31,7 @@ describe("news scan workflows", () => {
       organizationId: "00000000-0000-4000-8000-000000000001",
       actorUserId: "00000000-0000-4000-8000-000000000002",
       runId: "00000000-0000-4000-8000-000000000003",
+      force: false,
     });
 
     await expect(event.validate()).resolves.toBeUndefined();
@@ -32,8 +39,19 @@ describe("news scan workflows", () => {
       organizationId: "not-a-uuid",
       actorUserId: "also-not-a-uuid",
       runId: "still-not-a-uuid",
+      force: false,
     });
     await expect(invalidEvent.validate()).rejects.toThrow();
+  });
+
+  it("supports an explicit immediate-scan flag", async () => {
+    const event = newsScanRequested.create({
+      organizationId: "00000000-0000-4000-8000-000000000001",
+      actorUserId: "00000000-0000-4000-8000-000000000002",
+      runId: "00000000-0000-4000-8000-000000000003",
+      force: true,
+    });
+    await expect(event.validate()).resolves.toBeUndefined();
   });
 
   it("requires explicit opt-in before autonomous scans can run", () => {

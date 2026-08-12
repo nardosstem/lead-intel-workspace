@@ -22,6 +22,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const workspaceAccessDisabled = params.error === "workspace_access_disabled";
   const invitationConflict = params.error === "invitation_conflict";
   const invitationExpired = params.error === "invitation_expired";
+  const workspaceSignupDisabled = params.error === "workspace_signup_disabled";
 
   return (
     <main className="mx-auto flex w-full max-w-md items-center justify-center py-10">
@@ -56,6 +57,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {invitationExpired ? (
             <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
               This invitation is expired, revoked, or no longer available. Ask an organization owner to send a new invitation.
+            </p>
+          ) : null}
+          {workspaceSignupDisabled ? (
+            <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300" role="status">
+              New workspace sign-up is disabled for this internal deployment. Ask the workspace owner to invite you.
             </p>
           ) : null}
           <LoginForm nextPath={safeNextPath(params.next)} />

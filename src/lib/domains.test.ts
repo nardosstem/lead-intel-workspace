@@ -8,5 +8,7 @@ describe("public hostname validation", () => {
     expect(isPublicHostname("foo.local")).toBe(false);
     expect(isPublicHostname("foo.localhost")).toBe(false);
     expect(isPublicHostname("not a domain")).toBe(false);
+    expect(isPublicHostname("127.0.0.1")).toBe(false);
+    expect(isPublicHostname("0x7f000001")).toBe(false);
   });
 });

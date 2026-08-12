@@ -21,6 +21,14 @@ const contextMock = vi.hoisted(() =>
     userId: "10000000-0000-4000-8000-000000000002",
   })),
 );
+const databaseMock = vi.hoisted(() => ({
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(async () => [{ value: 1 }]),
+    })),
+  })),
+  transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({})),
+}));
 
 vi.mock("@/inngest/client", () => ({
   inngest: { send: sendMock },
@@ -28,7 +36,16 @@ vi.mock("@/inngest/client", () => ({
   newsScanRequested: { create: newsCreateEventMock },
 }));
 
-vi.mock("./server/context", () => ({ requireLeadContext: contextMock }));
+vi.mock("@/lib/db", () => ({ getDatabase: () => databaseMock, monitoringTargets: {} }));
+vi.mock("@/lib/db/usage", () => ({
+  OrganizationUsageLimitError: class OrganizationUsageLimitError extends Error {},
+  reserveOrganizationUsage: vi.fn(),
+  releaseOrganizationUsage: vi.fn(),
+}));
+vi.mock("./server/context", () => ({
+  requireLeadContext: contextMock,
+  withLeadMutationContext: vi.fn(async (_context: unknown, callback: (tx: unknown) => Promise<unknown>) => callback({})),
+}));
 
 import { triggerDomainIngestion, triggerNewsScan } from "./actions";
 import {
@@ -113,6 +130,7 @@ describe("triggerDomainIngestion", () => {
       organizationId: "10000000-0000-4000-8000-000000000001",
       actorUserId: "10000000-0000-4000-8000-000000000002",
       runId: expect.any(String),
+      force: true,
     });
     expect(sendMock).toHaveBeenCalledWith({
       name: "lead.news.scan.requested",

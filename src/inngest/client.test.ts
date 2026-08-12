@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { leadIngestRequested } from "./client";
+import {
+  assertInngestDeploymentConfiguration,
+  isLocalInngestDevelopment,
+  leadIngestRequested,
+} from "./client";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("lead.ingest.requested event", () => {
   it("validates the tenant-scoped workflow payload", async () => {
@@ -26,5 +32,29 @@ describe("lead.ingest.requested event", () => {
     });
 
     await expect(event.validate()).rejects.toThrow(/organizationId|Invalid UUID/i);
+  });
+});
+
+describe("Inngest deployment guards", () => {
+  it("only treats the explicit local switch as development outside production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("INNGEST_DEV", "1");
+    expect(isLocalInngestDevelopment()).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isLocalInngestDevelopment()).toBe(false);
+  });
+
+  it("rejects development mode and missing signing credentials in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("INNGEST_DEV", "1");
+    expect(() => assertInngestDeploymentConfiguration()).toThrow(/INNGEST_DEV/);
+
+    vi.stubEnv("INNGEST_DEV", "");
+    expect(() => assertInngestDeploymentConfiguration()).toThrow(/EVENT_KEY/);
+
+    vi.stubEnv("INNGEST_EVENT_KEY", "event");
+    vi.stubEnv("INNGEST_SIGNING_KEY", "signing");
+    expect(() => assertInngestDeploymentConfiguration()).not.toThrow();
   });
 });

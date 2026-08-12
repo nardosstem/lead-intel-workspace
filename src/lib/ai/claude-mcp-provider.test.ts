@@ -21,12 +21,13 @@ describe("ClaudeMCPProvider", () => {
     const result = await provider.extractEntities({
       text: "Company context",
       schema: z.object({ score: z.number().min(0).max(100) }),
-      context: { ...context, traceId: "trace-1" },
+      context: { ...context, traceId: "trace-1", dataClassification: "private" },
     });
 
     expect(result.data).toEqual({ score: 87 });
     expect(result.model).toBe("claude-test");
     expect(calls[0]).toContain('"traceId":"trace-1"');
+    expect(calls[0]).toContain('"dataClassification"');
   });
 
   it("wraps malformed provider envelopes as safe provider errors", async () => {

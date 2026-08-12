@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createBrowserSupabaseClient } from "@/lib/auth";
+import { isPublicSignupEnabled } from "@/lib/public-env";
 
 type LoginMode = "sign-in" | "sign-up" | "forgot-password";
 
@@ -15,6 +16,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const publicSignupEnabled = isPublicSignupEnabled();
 
   function submit(formData: FormData) {
     setError(null);
@@ -157,7 +159,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
           Forgot your password?
         </button>
       ) : null}
-      <button
+      {publicSignupEnabled ? <button
         type="button"
         className="w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         onClick={() => {
@@ -167,7 +169,7 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
         }}
       >
         {isForgotPassword ? "Back to sign in" : isSignUp ? "Already have an account? Sign in" : "New here? Create an account"}
-      </button>
+      </button> : null}
     </form>
   );
 }

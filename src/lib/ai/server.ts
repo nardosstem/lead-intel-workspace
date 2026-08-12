@@ -14,8 +14,9 @@ const MAX_AI_RESPONSE_BYTES = 2_000_000;
 class HttpClaudeMCPTransport implements ClaudeMCPTransport {
   private readonly endpoint: string;
   private readonly authToken?: string;
+  private readonly allowPrivateData: boolean;
 
-  constructor(endpoint: string, authToken?: string) {
+  constructor(endpoint: string, authToken?: string, allowPrivateData = false) {
     const parsed = new URL(endpoint);
     const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
     if (parsed.protocol !== "https:" && !(localHost && parsed.protocol === "http:")) {
@@ -26,11 +27,25 @@ class HttpClaudeMCPTransport implements ClaudeMCPTransport {
     }
     this.endpoint = parsed.toString();
     this.authToken = authToken?.trim() || undefined;
+    this.allowPrivateData = allowPrivateData;
   }
 
   async callTool<TArguments extends Record<string, unknown>>(
     call: MCPToolCall<TArguments>,
   ): Promise<unknown> {
+    const requestContext = call.arguments.context;
+    if (
+      !this.allowPrivateData &&
+      typeof requestContext === "object" &&
+      requestContext !== null &&
+      "dataClassification" in requestContext &&
+      requestContext.dataClassification === "private"
+    ) {
+      throw new AIProviderError(
+        "Claude MCP private-data processing is disabled. Set CLAUDE_MCP_ALLOW_PRIVATE_DATA=1 after reviewing the bridge policy.",
+        "claude-mcp",
+      );
+    }
     const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
     const signal = call.signal
       ? AbortSignal.any([call.signal, timeoutSignal])
@@ -95,6 +110,7 @@ export function getAIProvider(): IAIProvider {
         transport: new HttpClaudeMCPTransport(
           process.env.CLAUDE_MCP_ENDPOINT,
           process.env.CLAUDE_MCP_AUTH_TOKEN,
+          process.env.CLAUDE_MCP_ALLOW_PRIVATE_DATA === "1",
         ),
       })
     : undefined;

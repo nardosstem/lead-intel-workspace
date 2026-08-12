@@ -1,5 +1,6 @@
 "use server";
 
+import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { inngest, leadIngestRequested, newsScanRequested } from "@/inngest/client";
@@ -11,6 +12,13 @@ import {
 } from "@/lib/runtime-controls";
 
 import { requireLeadContext } from "./server/context";
+import { withLeadMutationContext } from "./server/context";
+import { getDatabase, monitoringTargets } from "@/lib/db";
+import {
+  OrganizationUsageLimitError,
+  releaseOrganizationUsage,
+  reserveOrganizationUsage,
+} from "@/lib/db/usage";
 import type { ActionResult } from "./types";
 
 const domainInputSchema = z.string().trim().min(1, "Enter a company domain.").max(253);
@@ -29,6 +37,10 @@ function actionFailure(error: unknown): ActionResult<never> {
 
   if (error instanceof Error && /event key|INNGEST_EVENT_KEY/i.test(error.message)) {
     return { ok: false, error: "Inngest is not configured. Set INNGEST_EVENT_KEY first." };
+  }
+
+  if (error instanceof OrganizationUsageLimitError) {
+    return { ok: false, error: "The workspace news-scan daily limit has been reached. Try again tomorrow." };
   }
 
   console.error("Lead ingestion action failed", {
@@ -78,13 +90,43 @@ export async function triggerNewsScan(): Promise<ActionResult<{ message: string 
 
   try {
     const context = await requireLeadContext();
-    const event = newsScanRequested.create({
-      organizationId: context.organizationId,
-      actorUserId: context.userId,
-      runId: crypto.randomUUID(),
+    const monitoredTargets = await getDatabase()
+      .select({ value: count() })
+      .from(monitoringTargets)
+      .where(and(
+        eq(monitoringTargets.organizationId, context.organizationId),
+        eq(monitoringTargets.enabled, true),
+      ));
+    if (Number(monitoredTargets[0]?.value ?? 0) === 0) {
+      return { ok: false, error: "Monitor at least one company before scanning news." };
+    }
+    const runId = crypto.randomUUID();
+    await withLeadMutationContext(context, async (tx) => {
+      await reserveOrganizationUsage(tx, {
+        organizationId: context.organizationId,
+        kind: "news_scan",
+        reservationKey: runId,
+      });
     });
-    await event.validate();
-    await inngest.send({ name: event.name, data: event.data });
+    try {
+      const event = newsScanRequested.create({
+        organizationId: context.organizationId,
+        actorUserId: context.userId,
+        runId,
+        force: true,
+      });
+      await event.validate();
+      await inngest.send({ name: event.name, data: event.data });
+    } catch (error) {
+      await withLeadMutationContext(context, async (tx) => {
+        await releaseOrganizationUsage(tx, {
+          organizationId: context.organizationId,
+          kind: "news_scan",
+          reservationKey: runId,
+        });
+      });
+      throw error;
+    }
     return { ok: true, data: { message: "News scan started in background" } };
   } catch (error) {
     return actionFailure(error);

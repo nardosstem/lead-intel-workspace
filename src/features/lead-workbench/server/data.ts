@@ -55,11 +55,12 @@ function escapeLike(value: string): string {
 }
 
 function pageInfo(page: number, pageSize: number, total: number): WorkbenchPageInfo {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   return {
-    page,
+    page: Math.min(page, pageCount),
     pageSize,
     total,
-    pageCount: Math.max(1, Math.ceil(total / pageSize)),
+    pageCount,
   };
 }
 
@@ -501,6 +502,19 @@ export async function getWorkbenchSnapshot(
   const companyTotal = countValue(companyTotalRows[0]);
   const contactTotal = countValue(contactTotalRows[0]);
   const pipelineTotal = countValue(pipelineTotalRows[0]);
+  const boundedQuery = {
+    ...query,
+    companiesPage: Math.min(query.companiesPage, Math.max(1, Math.ceil(companyTotal / query.pageSize))),
+    contactsPage: Math.min(query.contactsPage, Math.max(1, Math.ceil(contactTotal / query.pageSize))),
+    pipelinePage: Math.min(query.pipelinePage, Math.max(1, Math.ceil(pipelineTotal / query.pageSize))),
+  };
+  if (
+    boundedQuery.companiesPage !== query.companiesPage ||
+    boundedQuery.contactsPage !== query.contactsPage ||
+    boundedQuery.pipelinePage !== query.pipelinePage
+  ) {
+    return getWorkbenchSnapshot(boundedQuery);
+  }
   const signalsByCompanyId: Record<string, LeadSignal[]> = {};
   for (const row of signalRows) {
     const signal = toLeadSignalRecord(row);

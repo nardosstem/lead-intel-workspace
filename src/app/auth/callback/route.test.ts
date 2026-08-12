@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { exchangeCodeForSession, getUser, acceptPendingOrganizationInvitation } = vi.hoisted(() => ({
+const { exchangeCodeForSession, getUser, acceptPendingOrganizationInvitation, signOut } = vi.hoisted(() => ({
   exchangeCodeForSession: vi.fn(),
   getUser: vi.fn(),
   acceptPendingOrganizationInvitation: vi.fn().mockResolvedValue({ accepted: true }),
+  signOut: vi.fn().mockResolvedValue({ error: null }),
 }));
 
 vi.mock("@/lib/auth/server", () => ({
@@ -12,7 +13,7 @@ vi.mock("@/lib/auth/server", () => ({
     auth: {
       exchangeCodeForSession,
       getUser,
-      signOut: vi.fn().mockResolvedValue({ error: null }),
+      signOut,
     },
   }),
 }));
@@ -28,6 +29,7 @@ afterEach(() => {
   exchangeCodeForSession.mockReset();
   getUser.mockReset();
   acceptPendingOrganizationInvitation.mockReset().mockResolvedValue({ accepted: true });
+  signOut.mockReset().mockResolvedValue({ error: null });
 });
 
 function request(path: string): NextRequest {
@@ -48,6 +50,7 @@ describe("auth callback route", () => {
       "https://lead-intel-workspace.vercel.app/login?next=%2Fleads&confirmed=1",
     );
     expect(acceptPendingOrganizationInvitation).not.toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalled();
   });
 
   it("sends recovery callbacks to the password form", async () => {
@@ -173,5 +176,22 @@ describe("auth callback route", () => {
     expect(response.headers.get("location")).toBe(
       "https://lead-intel-workspace.vercel.app/login?next=%2Fleads&error=auth_callback_failed",
     );
+  });
+
+  it("accepts an invited user even when the mutable flow query is removed", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: { session: { user: { id: "user-1", email: "invitee@example.com", invited_at: "2026-01-01T00:00:00Z" } } },
+      error: null,
+    });
+
+    const response = await GET(request("/auth/callback?code=invite-code&next=%2Fleads"));
+
+    expect(response.headers.get("location")).toBe(
+      "https://lead-intel-workspace.vercel.app/login/reset-password",
+    );
+    expect(acceptPendingOrganizationInvitation).toHaveBeenCalledWith({
+      userId: "user-1",
+      email: "invitee@example.com",
+    });
   });
 });

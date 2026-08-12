@@ -508,6 +508,9 @@ export const ingestLead = inngest.createFunction(
     // idempotency window expires. Database-level matching below remains the
     // final safety boundary for retries.
     idempotency: "event.data.runId",
+    // Keep provider retries bounded and make the terminal failure state
+    // deterministic for the database record.
+    retries: 3,
     concurrency: [
       {
         // Keep duplicate submissions for one tenant/domain serialized. The
@@ -525,7 +528,7 @@ export const ingestLead = inngest.createFunction(
     ],
     triggers: [{ event: leadIngestRequested }],
   },
-  async ({ event, step }) => {
+  async ({ event, step, attempt, maxAttempts }) => {
     if (!isLeadIngestionEnabled()) {
       return { skipped: true, reason: "LEAD_INGESTION_ENABLED=0" };
     }
@@ -594,7 +597,6 @@ export const ingestLead = inngest.createFunction(
                 eq(companies.id, initialData.companyId),
                 eq(companies.organizationId, context.organizationId),
                 eq(companies.enrichmentRunId, runId),
-                eq(companies.enrichmentStatus, "processing"),
               ),
             )
             .returning({ id: companies.id });
@@ -639,21 +641,30 @@ export const ingestLead = inngest.createFunction(
       };
     } catch (error) {
       const workflowError = toWorkflowError(error);
-      try {
-        await step.run("mark-enrichment-failed", async () => {
-          await markEnrichmentFailed(
-            context,
-            placeholderCompanyId,
-            event.data.domain,
-            runId,
-            error,
-          );
-        });
-      } catch (failureError) {
-        console.error("Unable to mark lead enrichment as failed", {
-          errorName: failureError instanceof Error ? failureError.name : "UnknownError",
-          companyId: placeholderCompanyId,
-        });
+      // Leave the record in `processing` while Inngest can still retry a
+      // transient provider/database failure. Marking it failed on the first
+      // attempt would poison the durable run: later memoized steps would no
+      // longer satisfy the ownership predicate in `save-enrichment`.
+      const finalAttempt = maxAttempts !== undefined
+        ? attempt >= maxAttempts - 1
+        : attempt >= 2;
+      if (workflowError instanceof NonRetriableError || finalAttempt) {
+        try {
+          await step.run("mark-enrichment-failed", async () => {
+            await markEnrichmentFailed(
+              context,
+              placeholderCompanyId,
+              event.data.domain,
+              runId,
+              error,
+            );
+          });
+        } catch (failureError) {
+          console.error("Unable to mark lead enrichment as failed", {
+            errorName: failureError instanceof Error ? failureError.name : "UnknownError",
+            companyId: placeholderCompanyId,
+          });
+        }
       }
       throw workflowError;
     }

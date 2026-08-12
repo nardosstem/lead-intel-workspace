@@ -3,6 +3,7 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 
 import { getCurrentUser, requireCurrentUser } from "@/lib/auth/user";
+import { isPublicSignupEnabled } from "@/lib/public-env";
 import { auditLogs, getDatabase, organizations, users, type Database } from "@/lib/db";
 
 export type LeadContext = Readonly<{
@@ -58,6 +59,16 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
       ? { userId: user.id, organizationId: existingProfile[0].organizationId }
       : null;
   }
+
+  // A Supabase-invited user must pass through the invitation callback so the
+  // pending organization invitation is atomically accepted before a profile
+  // can exist. Never auto-provision an invitee whose callback query was
+  // tampered with or whose invitation has expired.
+  if (user.invited_at) return null;
+
+  // Keep self-service onboarding available in local development while making
+  // production sign-up an explicit deployment decision.
+  if (!isPublicSignupEnabled()) return null;
 
   const email = user.email ?? `${user.id}@local.invalid`;
   const metadata = user.user_metadata as Record<string, unknown> | undefined;

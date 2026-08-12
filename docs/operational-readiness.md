@@ -17,7 +17,8 @@ before any external use.
 
 The pilot is ready only when all of the following are true:
 
-- A staging deployment has been migrated and its health endpoint returns `ok`.
+- The deployment has been migrated and its health endpoint returns `ok` (HTTP
+  503 means either degraded configuration or an unhealthy database).
 - A test user can sign in, receive a password-reset or invitation email, and
   access only its own organization.
 - Inngest is registered against the deployed `/api/inngest` route and accepts

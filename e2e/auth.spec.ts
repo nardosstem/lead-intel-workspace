@@ -82,8 +82,10 @@ test.describe("authentication shell", () => {
       checks: expect.objectContaining({ database: expect.stringMatching(/^(ok|error)$/) }),
     });
     if (response.status() === 503) {
-      expect(health.status).toBe("unhealthy");
-      expect(health.checks.database).toBe("error");
+      expect(health.status).toMatch(/^(degraded|unhealthy)$/);
+      if (health.status === "unhealthy") {
+        expect(health.checks.database).toBe("error");
+      }
     }
   });
 });

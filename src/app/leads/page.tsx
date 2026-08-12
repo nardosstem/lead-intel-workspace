@@ -34,7 +34,11 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
 
   const workspaceContext = await ensureLeadContext();
   if (!workspaceContext) {
-    redirect("/login?error=workspace_access_disabled&next=/leads");
+    redirect(
+      user.invited_at
+        ? "/login?error=invitation_expired&next=/leads"
+        : "/login?error=workspace_signup_disabled&next=/leads",
+    );
   }
   const params = await searchParams;
   const view = workbenchViews.includes(params.view as (typeof workbenchViews)[number])

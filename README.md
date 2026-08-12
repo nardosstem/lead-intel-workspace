@@ -53,6 +53,9 @@ FIRECRAWL_API_KEY=fc-your-firecrawl-api-key
 INNGEST_EVENT_KEY=your-inngest-event-key
 INNGEST_SIGNING_KEY=signkey-prod-...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Keep 0 for an internal deployment; set 1 only when self-service workspace
+# creation is an intentional product decision.
+NEXT_PUBLIC_PUBLIC_SIGNUP_ENABLED=0
 # Conservative UTC per-organization provider budgets.
 LEAD_INGESTION_DAILY_LIMIT=25
 NEWS_SCAN_DAILY_LIMIT=1
@@ -64,13 +67,12 @@ SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 ```
 
 `GET /api/health` is a public, cache-disabled deployment check. It verifies
-database liveness and reports non-secret dependency configuration—including the
-stable Server Actions key—as `ok`, `degraded`, or `unhealthy`; it deliberately
-does not probe provider networks or consume Apollo/Firecrawl/AI credits.
-The response also reports the current non-secret runtime control state for
-ingestion, AI actions, and news scanning.
-Configure the hosting platform to treat HTTP 503 (`unhealthy`) as a failed
-readiness check.
+database liveness and returns only a coarse `ok`, `degraded`, or `unhealthy`
+status plus the database state; it does not expose provider presence, runtime
+switches, or diagnostics and does not probe provider networks or consume
+Apollo/Firecrawl/AI credits. Configure the hosting platform to treat HTTP 503
+as a failed readiness check. Full dependency diagnostics are available only to
+server-side operational tooling.
 
 Use a direct connection for migrations. At runtime, Supabase's session pooler
 is also supported because the Postgres.js client disables prepared statements.
@@ -390,8 +392,14 @@ after reviewing Google's terms.
 Set `CLAUDE_MCP_ENDPOINT` to an HTTPS bridge that accepts `{ name, arguments }`
 and returns the response envelope expected by `ClaudeMCPProvider` when Claude
 fallback is desired. No Claude Desktop process is required by the application.
+Private contact requests additionally require `CLAUDE_MCP_ALLOW_PRIVATE_DATA=1`
+after reviewing the bridge's retention and access policy; the default is deny.
 
-Organization profiles carry explicit `owner`, `admin`, or `member` roles. All
+Production internal deployments should keep `NEXT_PUBLIC_PUBLIC_SIGNUP_ENABLED=0`;
+the login page then offers sign-in and password recovery while new members enter
+only through an accepted invitation. Set it to `1` only when self-service
+workspace creation and its provider-spend exposure are intentional. Organization
+profiles carry explicit `owner`, `admin`, or `member` roles. All
 members can work leads; only owners and admins can change workspace defaults or
 member roles. Only owners can grant owner access, and the last owner cannot be
 demoted. Application role changes are recorded in the tenant audit history;
@@ -462,12 +470,13 @@ metadata and short evidence rather than copying full articles; always link back
 to the publisher and review source terms before enabling a production scan.
 
 The scheduler runs in UTC by default using `NEWS_SCAN_CRON`, selects due
-organization targets, records partial-provider warnings, and enforces per-run
-company/article budgets. Set `NEWS_SCAN_ENABLED=1` to enable it (the example
-file defaults to `0` until provider budgets are reviewed). `Scan news` queues
-the same durable workflow manually. A later iteration can add organization-
-local time zones and alternate news adapters without changing the signal
-contract.
+organization targets, fans each organization into its own durable run, records
+partial-provider warnings, and enforces per-run company/article budgets. Set
+`NEWS_SCAN_ENABLED=1` to enable it (the example file defaults to `0` until
+provider budgets are reviewed). `Scan news` queues an immediate scan of all
+enabled targets in the current workspace and consumes the same daily
+organization reservation. A later iteration can add organization-local time
+zones and alternate news adapters without changing the signal contract.
 
 ### AI provider policy and cost
 
@@ -509,7 +518,8 @@ environment:
   an HTTPS endpoint, with `CLAUDE_MCP_AUTH_TOKEN` set when the bridge requires
   bearer authentication.
 - Inngest must register the deployed `/api/inngest` URL and sign webhook
-  requests with `INNGEST_SIGNING_KEY`; unsigned requests are rejected.
+  requests with `INNGEST_SIGNING_KEY`; production requests are rejected when
+  signing credentials are missing or `INNGEST_DEV` is set.
 - Supabase Auth must allow the deployed `/auth/callback` and reset-password
   redirect URLs, and migrations/boundary checks must run against staging.
 - Configure Supabase Auth email delivery (SMTP or the hosted email provider),

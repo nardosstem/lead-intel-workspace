@@ -10,7 +10,7 @@ describe("health route", () => {
   it("returns a cache-disabled healthy response", async () => {
     healthMock.mockResolvedValueOnce({
       status: "ok",
-      checks: { database: "ok" },
+      checks: { database: "ok", apollo: "missing" },
     });
 
     const response = await GET();

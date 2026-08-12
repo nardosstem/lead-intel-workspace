@@ -29,9 +29,12 @@ export async function GET(request: NextRequest) {
 
   async function acceptInvitationForUser(
     supabase: Awaited<ReturnType<typeof createClient>>,
-    user: { id: string; email?: string | null },
+    user: { id: string; email?: string | null; invited_at?: string },
   ): Promise<NextResponse | null> {
-    if (isRecovery || !isInvitation) return null;
+    // Supabase marks admin-invited users with `invited_at`. Treat that
+    // server-verified claim as authoritative so an invitee cannot remove or
+    // rewrite the mutable `flow` query parameter to bypass tenant acceptance.
+    if (isRecovery || (!isInvitation && !user.invited_at)) return null;
 
     try {
       if (!user.email) {
@@ -78,16 +81,22 @@ export async function GET(request: NextRequest) {
         // not depend on application-database availability or invitation state;
         // otherwise a transient workspace DB outage can strand a user with a
         // valid recovery link but no way to set a new password.
-        if (user && isInvitation) {
+        if (user && !isRecovery && (isInvitation || Boolean(user.invited_at))) {
           const invitationFailure = await acceptInvitationForUser(supabase, user);
           if (invitationFailure) return invitationFailure;
+          return NextResponse.redirect(new URL("/login/reset-password", request.url));
         }
         if (!user && (isInvitation || isSignup)) {
           return NextResponse.redirect(new URL("/login?next=%2Fleads&error=auth_callback_failed", request.url));
         }
-        return isSignup
-          ? redirectAfterSignup()
-          : NextResponse.redirect(new URL(nextPath, request.url));
+        if (isSignup) {
+          // Signup confirmation is intentionally a sign-in checkpoint. Clear
+          // the exchanged session so the login page does not claim the user
+          // must sign in while a live authenticated cookie is still active.
+          await supabase.auth.signOut().catch(() => undefined);
+          return redirectAfterSignup();
+        }
+        return NextResponse.redirect(new URL(nextPath, request.url));
       }
     } catch {
       // Return a safe, user-facing error without leaking provider details.

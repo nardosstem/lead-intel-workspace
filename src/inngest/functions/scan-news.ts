@@ -36,7 +36,11 @@ import {
   type NewsArticle,
 } from "@/lib/news";
 
-import { inngest, newsScanRequested } from "@/inngest/client";
+import {
+  inngest,
+  newsScanRequested,
+  scheduledNewsScanRequested,
+} from "@/inngest/client";
 
 const DEFAULT_CRON = "TZ=UTC 0 7 * * 1";
 const DEFAULT_LOOKBACK_DAYS = 8;
@@ -220,6 +224,7 @@ async function withSystemTenantContext<T>(
 
 async function loadDueTargets(
   organizationId?: string,
+  force = false,
 ): Promise<ScanTarget[]> {
   const db = getDatabase();
   const now = new Date();
@@ -249,13 +254,29 @@ async function loadDueTargets(
       and(
         eq(monitoringTargets.enabled, true),
         organizationId ? eq(monitoringTargets.organizationId, organizationId) : undefined,
-        or(isNull(monitoringTargets.nextScanAt), lte(monitoringTargets.nextScanAt, now)),
+        force
+          ? undefined
+          : or(isNull(monitoringTargets.nextScanAt), lte(monitoringTargets.nextScanAt, now)),
       ),
     )
     .orderBy(asc(monitoringTargets.nextScanAt), desc(monitoringTargets.priority))
     .limit(maxCompanies());
 
   return rows;
+}
+
+async function loadDueOrganizationIds(): Promise<string[]> {
+  const db = getDatabase();
+  const rows = await db
+    .select({ organizationId: monitoringTargets.organizationId })
+    .from(monitoringTargets)
+    .where(
+      and(
+        eq(monitoringTargets.enabled, true),
+        or(isNull(monitoringTargets.nextScanAt), lte(monitoringTargets.nextScanAt, new Date())),
+      ),
+    );
+  return [...new Set(rows.map((row) => row.organizationId))];
 }
 
 function toCandidate(
@@ -433,8 +454,9 @@ async function startDurableScan(
   organizationId: string,
   actorUserId: string | undefined,
   reservationKey: string,
+  force = false,
 ): Promise<StartedScan | null> {
-  const targets = await loadDueTargets(organizationId);
+  const targets = await loadDueTargets(organizationId, force);
   if (targets.length === 0) return null;
 
   const now = new Date();
@@ -571,11 +593,12 @@ async function runDurableTarget(
 
   await step.run(`${stepPrefix}-mark-target-scanned`, () => withSystemTenantContext(parsedTarget.organizationId, async (tx) => {
     const scannedAt = new Date(discovery.scannedAt);
+    const retrySoon = discovery.warnings.length > 0;
     await tx
       .update(monitoringTargets)
       .set({
         lastScannedAt: scannedAt,
-        nextScanAt: new Date(scannedAt.getTime() + parsedTarget.scanFrequencyDays * 86_400_000),
+        nextScanAt: new Date(scannedAt.getTime() + (retrySoon ? 86_400_000 : parsedTarget.scanFrequencyDays * 86_400_000)),
       })
       .where(and(eq(monitoringTargets.id, parsedTarget.targetId), eq(monitoringTargets.organizationId, parsedTarget.organizationId)));
   }, actorUserId));
@@ -594,9 +617,10 @@ async function runDurableOrganizationScan(
   actorUserId: string | undefined,
   reservationKey: string,
   stepPrefix: string,
+  force = false,
 ): Promise<ScanCounts & { warning?: string }> {
   const started = await step.run(`${stepPrefix}-start`, () =>
-    startDurableScan(organizationId, actorUserId, reservationKey),
+    startDurableScan(organizationId, actorUserId, reservationKey, force),
   );
   if (!started) return { candidatesFound: 0, articlesFetched: 0, signalsExtracted: 0 };
 
@@ -637,20 +661,38 @@ export const scanNewsScheduled = inngest.createFunction(
   async ({ step }) => {
     if (!scanEnabled()) return { skipped: true, reason: "NEWS_SCAN_ENABLED=0" };
     const scanDate = usageDateKey();
-    const organizationIds = await step.run("load-due-organizations", async () =>
-      [...new Set((await loadDueTargets()).map((target) => target.organizationId))],
-    );
-    const results = [];
+    const organizationIds = await step.run("load-due-organizations", loadDueOrganizationIds);
     for (const organizationId of organizationIds) {
-      results.push(await runDurableOrganizationScan(
-        step,
-        organizationId,
-        undefined,
-        `scheduled:${organizationId}:${scanDate}`,
-        `scan-organization-${organizationId}`,
-      ));
+      await step.run(`enqueue-${organizationId}`, async () => {
+        const event = scheduledNewsScanRequested.create({
+          organizationId,
+          runId: `scheduled:${organizationId}:${scanDate}`,
+        });
+        await event.validate();
+        await inngest.send({ name: event.name, data: event.data });
+      });
     }
-    return { organizations: organizationIds.length, results };
+    return { organizations: organizationIds.length, queued: true };
+  },
+);
+
+export const scanNewsOrganizationScheduled = inngest.createFunction(
+  {
+    id: "scan-news-organization-scheduled",
+    name: "Scan one organization's monitored companies",
+    idempotency: "event.data.runId",
+    triggers: [{ event: scheduledNewsScanRequested }],
+    concurrency: { limit: 1, key: "event.data.organizationId", scope: "fn" },
+  },
+  async ({ event, step }) => {
+    if (!scanEnabled()) return { skipped: true, reason: "NEWS_SCAN_ENABLED=0" };
+    return runDurableOrganizationScan(
+      step,
+      event.data.organizationId,
+      undefined,
+      event.data.runId,
+      "scan-organization",
+    );
   },
 );
 
@@ -670,12 +712,14 @@ export const scanNewsRequested = inngest.createFunction(
       event.data.actorUserId,
       event.data.runId,
       "scan-organization",
+      event.data.force,
     );
   },
 );
 
 export const __newsScanInternals = {
   loadDueTargets,
+  loadDueOrganizationIds,
   startDurableScan,
   scanEnabled,
   applyScrapeResult,

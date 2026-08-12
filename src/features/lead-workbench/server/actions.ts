@@ -19,6 +19,7 @@ import {
 import { parseCompaniesCsv } from "./csv";
 import {
   requireLeadAdminContext,
+  requireLeadContext,
   requireLeadAdminTransaction,
   withLeadMutation,
   withLeadMutationContext,
@@ -137,6 +138,10 @@ export async function getLeads(input?: unknown): Promise<WorkbenchSnapshot> {
   if (!parsed.success) {
     throw new Error("Invalid workbench query.");
   }
+  // Reads must fail closed when a session expires or membership is
+  // deactivated. Returning an empty snapshot makes a real tenant look as if
+  // all of its leads disappeared.
+  await requireLeadContext();
   return getWorkbenchSnapshot(parsed.data);
 }
 
@@ -472,7 +477,7 @@ export async function inviteMember(
           .limit(1);
         if (existingProfile[0]) {
           throw new InvitationConflictError(
-            "That email already has an organization profile. Reactivate or manage the existing member instead.",
+            "That email cannot be invited to this workspace. Ask the workspace owner to review the account.",
           );
         }
 

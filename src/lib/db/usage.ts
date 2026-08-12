@@ -134,4 +134,30 @@ export async function reserveOrganizationUsage(
   return { usageDate, count: currentCount + 1, limit };
 }
 
+/** Releases a reservation when an event could not be submitted to Inngest. */
+export async function releaseOrganizationUsage(
+  tx: LeadTransaction,
+  input: Readonly<{
+    organizationId: string;
+    kind: OrganizationUsageKind;
+    reservationKey: string;
+    now?: Date;
+  }>,
+): Promise<void> {
+  const usageDate = usageDateKey(input.now);
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`usage:${input.organizationId}:${usageDate}:${input.kind}`}, 0))`,
+  );
+  await tx
+    .delete(organizationUsage)
+    .where(
+      and(
+        eq(organizationUsage.organizationId, input.organizationId),
+        eq(organizationUsage.usageDate, usageDate),
+        eq(organizationUsage.kind, input.kind),
+        eq(organizationUsage.reservationKey, input.reservationKey),
+      ),
+    );
+}
+
 export const __usageInternals = { positiveLimit, DEFAULT_LIMITS, ENV_KEYS };

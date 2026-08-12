@@ -161,7 +161,7 @@ export class RssClient {
       throw new NewsSourceError("rss", "RSS feed URL is invalid.", 400);
     }
     if (
-      (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") ||
+      parsedUrl.protocol !== "https:" ||
       parsedUrl.username ||
       parsedUrl.password ||
       !isPublicHostname(parsedUrl.hostname)
@@ -174,6 +174,9 @@ export class RssClient {
         headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
         signal: AbortSignal.timeout(this.timeoutMs),
         cache: "no-store",
+        // Do not follow a user-configured feed through a redirect into a
+        // private host. A redirect must be reviewed and saved explicitly.
+        redirect: "error",
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Network request failed";

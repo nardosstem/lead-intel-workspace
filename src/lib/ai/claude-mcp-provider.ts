@@ -139,6 +139,8 @@ export class ClaudeMCPProvider implements IAIProvider {
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
       traceId: context.traceId,
+      dataClassification: context.dataClassification,
+      webSearch: context.webSearch,
     };
   }
 
