@@ -42,7 +42,14 @@ export async function getLeadContext(): Promise<LeadContext | null> {
  * still empty. Other users receive an isolated workspace. This keeps local
  * onboarding self-serve without ever sharing a populated tenant.
  */
-export async function ensureLeadContext(): Promise<LeadContext | null> {
+export type EnsureLeadContextOptions = Readonly<{
+  /** Permit a verified existing Auth account to bootstrap an app profile even when public sign-up is disabled. */
+  allowExistingAuthUser?: boolean;
+  /** Permit an invited profile to finish its initial password setup. */
+  allowPasswordSetupIncomplete?: boolean;
+}>;
+
+export async function ensureLeadContext(options: EnsureLeadContextOptions = {}): Promise<LeadContext | null> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -57,7 +64,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
     .limit(1);
 
   if (existingProfile[0]) {
-    return existingProfile[0].isActive && existingProfile[0].passwordSetupAt
+    return existingProfile[0].isActive && (existingProfile[0].passwordSetupAt || options.allowPasswordSetupIncomplete)
       ? { userId: user.id, organizationId: existingProfile[0].organizationId }
       : null;
   }
@@ -70,7 +77,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
 
   // Keep self-service onboarding available in local development while making
   // production sign-up an explicit deployment decision.
-  if (!isPublicSignupEnabled()) return null;
+  if (!isPublicSignupEnabled() && !options.allowExistingAuthUser) return null;
 
   const email = user.email ?? `${user.id}@local.invalid`;
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
@@ -93,7 +100,7 @@ export async function ensureLeadContext(): Promise<LeadContext | null> {
       .limit(1);
 
     if (recheckedProfile[0]) {
-      return recheckedProfile[0].isActive && recheckedProfile[0].passwordSetupAt
+      return recheckedProfile[0].isActive && (recheckedProfile[0].passwordSetupAt || options.allowPasswordSetupIncomplete)
         ? { userId: user.id, organizationId: recheckedProfile[0].organizationId }
         : null;
     }
