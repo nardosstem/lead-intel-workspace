@@ -6,7 +6,24 @@ import { acceptPendingOrganizationInvitation, InvitationConflictError } from "@/
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
-  const nextPath = safeNextPath(request.nextUrl.searchParams.get("next"));
+  const flow = request.nextUrl.searchParams.get("flow");
+  const authType = request.nextUrl.searchParams.get("type");
+  const isRecovery = flow === "recovery" || authType === "recovery";
+  const isSignup = flow === "signup" || authType === "signup";
+  // Recovery must never fall through to the generic `/leads` default. Some
+  // Supabase email templates preserve `type=recovery` but omit the custom
+  // `next` parameter, and the user must land on the password form in either
+  // case.
+  const nextPath = isRecovery
+    ? "/login/reset-password"
+    : safeNextPath(request.nextUrl.searchParams.get("next"));
+
+  const redirectAfterSignup = () => {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", nextPath);
+    loginUrl.searchParams.set("confirmed", "1");
+    return NextResponse.redirect(loginUrl);
+  };
 
   if (code) {
     try {
@@ -15,7 +32,11 @@ export async function GET(request: NextRequest) {
 
       if (!error) {
         const user = data.session?.user;
-        if (user?.email) {
+        // Password recovery only needs the short-lived Auth session. It must
+        // not depend on application-database availability or invitation state;
+        // otherwise a transient workspace DB outage can strand a user with a
+        // valid recovery link but no way to set a new password.
+        if (user?.email && !isRecovery) {
           try {
             await acceptPendingOrganizationInvitation({ userId: user.id, email: user.email });
           } catch (invitationError) {
@@ -34,7 +55,9 @@ export async function GET(request: NextRequest) {
             return NextResponse.redirect(loginUrl);
           }
         }
-        return NextResponse.redirect(new URL(nextPath, request.url));
+        return isSignup
+          ? redirectAfterSignup()
+          : NextResponse.redirect(new URL(nextPath, request.url));
       }
     } catch {
       // Return a safe, user-facing error without leaking provider details.

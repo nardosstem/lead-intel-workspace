@@ -33,8 +33,11 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
       try {
         const supabase = createBrowserSupabaseClient();
         if (mode === "forgot-password") {
+          const callbackUrl = new URL("/auth/callback", window.location.origin);
+          callbackUrl.searchParams.set("next", "/login/reset-password");
+          callbackUrl.searchParams.set("flow", "recovery");
           const resetResult = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/login/reset-password")}`,
+            redirectTo: callbackUrl.toString(),
           });
           if (resetResult.error) {
             setError(resetResult.error.message);
@@ -61,7 +64,12 @@ export function LoginForm({ nextPath }: Readonly<{ nextPath: string }>) {
                 password,
                 options: {
                   ...(fullName ? { data: { full_name: fullName } } : {}),
-                  emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+                  emailRedirectTo: (() => {
+                    const callbackUrl = new URL("/auth/callback", window.location.origin);
+                    callbackUrl.searchParams.set("next", nextPath);
+                    callbackUrl.searchParams.set("flow", "signup");
+                    return callbackUrl.toString();
+                  })(),
                 },
               });
 

@@ -262,10 +262,21 @@ user.
 
 There is no preconfigured email or password, and the seed script cannot create
 Supabase Auth credentials. The `/login` route supports sign-in, self-service
-sign-up, and password reset. Confirmation links use the `/auth/callback` PKCE exchange route and
-return to the requested workspace path. For local testing, use an address such as `demo@leadintel.local` and a
-strong, local-only password of your choice. If email confirmation is enabled,
-confirm the user before signing in.
+sign-up, and password reset. Confirmation and recovery links use the
+`/auth/callback` PKCE exchange route with distinct flow markers. A signup
+confirmation verifies the email and returns to sign-in with a clear confirmation
+message; it does not change the password chosen during signup. A password reset
+request returns to `/login/reset-password`, where the short-lived recovery
+session is verified before the new-password form is enabled. Expired, reused, or
+directly opened reset pages fail closed and ask for a new link.
+
+Always start the flow from the same origin where it will be completed. A link
+generated from `http://localhost:3000` returns to localhost; a link generated
+from the deployed Vercel URL returns to that deployed callback. Configure both
+origins under Supabase Authentication → URL Configuration when developing
+locally and in production. For local testing, use an address such as
+`demo@leadintel.local` and a strong, local-only password of your choice. If
+email confirmation is enabled, confirm the user before signing in.
 
 On the first authenticated visit, the app automatically creates the required
 `public.users` profile. If the seeded `lead-intel-demo` organization exists and

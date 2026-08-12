@@ -26,9 +26,10 @@ test.describe("authentication shell", () => {
     await page.goto("/login/reset-password");
 
     await expect(page.getByRole("heading", { name: "Set a new password" })).toBeVisible();
+    await expect(page.getByText("This page needs a valid password-reset link.", { exact: false })).toBeVisible();
     await expect(page.getByLabel("New password", { exact: true })).toHaveAttribute("autocomplete", "new-password");
     await expect(page.getByLabel("Confirm new password", { exact: true })).toHaveAttribute("autocomplete", "new-password");
-    await expect(page.getByRole("button", { name: "Update password", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Update password", exact: true })).toBeDisabled();
   });
 
   test("supports dark mode without losing form contrast or labels", async ({ page }) => {
