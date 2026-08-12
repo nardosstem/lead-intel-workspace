@@ -74,9 +74,11 @@ Apollo/Firecrawl/AI credits. Configure the hosting platform to treat HTTP 503
 as a failed readiness check. Full dependency diagnostics are available only to
 server-side operational tooling.
 
-Use a direct connection for migrations. At runtime, Supabase's session pooler
-is also supported because the Postgres.js client disables prepared statements.
-Never prefix `DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
+Use the direct Supabase connection (port 5432) for migrations. For Vercel or
+other serverless runtimes, set `DATABASE_URL` to Supabase's transaction pooler
+(port 6543, with the `postgres.<project-ref>` user); it keeps short-lived
+functions from exhausting the project's session connection limit. Never prefix
+`DATABASE_URL` or service-role credentials with `NEXT_PUBLIC_`.
 
 The application enforces these UTC, per-organization budgets for domain
 ingestion, news scans, and foreground AI actions. Reservations use idempotency
