@@ -147,6 +147,17 @@ async function initializeIngestion(
   usageDate: string,
 ): Promise<string> {
   return withLeadMutationContext(context, async (tx) => {
+    const existingRun = await tx
+      .select({ status: ingestionRuns.status, companyId: companies.id })
+      .from(ingestionRuns)
+      .leftJoin(companies, and(
+        eq(companies.organizationId, ingestionRuns.organizationId),
+        eq(companies.enrichmentRunId, ingestionRuns.id),
+      ))
+      .where(and(eq(ingestionRuns.id, runId), eq(ingestionRuns.organizationId, context.organizationId)))
+      .limit(1);
+    if (existingRun[0]?.status === "complete" && existingRun[0].companyId) return existingRun[0].companyId;
+    if (existingRun[0]?.status === "failed") throw new NonRetriableError("This ingestion run has already failed.");
     await tx.update(ingestionRuns).set({ status: "processing", lastAttemptAt: new Date() })
       .where(and(eq(ingestionRuns.id, runId), eq(ingestionRuns.organizationId, context.organizationId)));
     const actor = await tx
@@ -521,6 +532,15 @@ async function markEnrichmentFailed(
   }, { allowInactiveActor: true });
 }
 
+async function findCompanyForRun(organizationId: string, runId: string): Promise<string | null> {
+  const rows = await getDatabase()
+    .select({ id: companies.id })
+    .from(companies)
+    .where(and(eq(companies.organizationId, organizationId), eq(companies.enrichmentRunId, runId)))
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
 export const ingestLead = inngest.createFunction(
   {
     id: "ingest-lead",
@@ -568,6 +588,14 @@ export const ingestLead = inngest.createFunction(
       );
       if (!placeholderCompanyId) throw new NonRetriableError("Ingestion company initialization failed.");
       const companyId = placeholderCompanyId;
+      const runState = await step.run("check-ingestion-run-state", async () => {
+        const rows = await getDatabase().select({ status: ingestionRuns.status })
+          .from(ingestionRuns)
+          .where(and(eq(ingestionRuns.id, runId), eq(ingestionRuns.organizationId, context.organizationId)))
+          .limit(1);
+        return rows[0]?.status ?? "failed";
+      });
+      if (runState === "complete") return { skipped: true, reason: "already-complete", companyId };
       const apolloData = await step.run("fetch-apollo-data", async () =>
         ingestApolloLeads(event.data.domain, event.data.targetTitles),
       );
@@ -681,10 +709,11 @@ export const ingestLead = inngest.createFunction(
       if (workflowError instanceof NonRetriableError || finalAttempt) {
         try {
           await step.run("mark-enrichment-failed", async () => {
-            if (placeholderCompanyId) {
+            const companyId = placeholderCompanyId ?? await findCompanyForRun(context.organizationId, runId);
+            if (companyId) {
               await markEnrichmentFailed(
                 context,
-                placeholderCompanyId,
+                companyId,
                 event.data.domain,
                 runId,
                 error,
@@ -742,6 +771,16 @@ export const dispatchQueuedLeadIngestions = inngest.createFunction(
     for (const run of queued) {
       await step.run(`dispatch-${run.id}`, async () => {
         if (run.attempts >= MAX_DISPATCH_ATTEMPTS) {
+          const companyId = await findCompanyForRun(run.organizationId, run.id);
+          if (companyId) {
+            await markEnrichmentFailed(
+              { organizationId: run.organizationId, userId: run.actorUserId },
+              companyId,
+              run.domain,
+              run.id,
+              new Error("Background event delivery exceeded the retry limit."),
+            );
+          }
           await getDatabase().update(ingestionRuns).set({
             status: "failed",
             lastError: "Background event delivery exceeded the retry limit.",
