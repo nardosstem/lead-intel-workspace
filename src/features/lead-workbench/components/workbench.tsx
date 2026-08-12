@@ -950,7 +950,13 @@ export function LeadWorkbench({
         render: (row) => {
           const href = safeLinkedInHref(row.linkedin);
           return href ? (
-            <a href={href} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
               Profile
             </a>
           ) : "—";
@@ -1343,6 +1349,10 @@ export function LeadWorkbench({
               onSelect={openCompany}
               pagination={data.pagination.companies}
               onQueryChange={changeCompanyQuery}
+              queryState={{
+                query: listQuery.companySearch,
+                filters: { status: listQuery.companyStatus ?? "" },
+              }}
               isLoading={isRefreshing}
               emptyMessage="No companies match those filters."
             />
@@ -1369,6 +1379,10 @@ export function LeadWorkbench({
               onSelect={setSelectedContact}
               pagination={data.pagination.contacts}
               onQueryChange={changeContactQuery}
+              queryState={{
+                query: listQuery.contactSearch,
+                filters: { company: listQuery.contactCompanyId ?? "" },
+              }}
               isLoading={isRefreshing}
               emptyMessage="No contacts match those filters."
             />

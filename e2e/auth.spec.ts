@@ -32,6 +32,14 @@ test.describe("authentication shell", () => {
     await expect(page.getByRole("button", { name: "Update password", exact: true })).toBeDisabled();
   });
 
+  test("fails a direct invitation visit closed without an implicit-flow session", async ({ page }) => {
+    await page.goto("/auth/accept-invitation");
+
+    await expect(page.getByRole("heading", { name: "Accept workspace invitation" })).toBeVisible();
+    await expect(page.getByText("This invitation link is invalid or expired.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Return to sign in" })).toHaveAttribute("href", "/login");
+  });
+
   test("supports dark mode without losing form contrast or labels", async ({ page }) => {
     const cspViolations: string[] = [];
     page.on("console", (message) => {

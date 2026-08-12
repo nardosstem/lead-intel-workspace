@@ -35,7 +35,12 @@ export function invitationRedirectUrl(): string {
     );
   }
 
-  const redirectUrl = new URL("/auth/callback", appUrl);
+  // Supabase invitation links use an implicit-flow fragment rather than PKCE
+  // (the invite can be accepted in a different browser from the one that sent
+  // it). A Route Handler cannot read URL fragments, so invitations first land
+  // on a browser page that persists the session cookie before it calls the
+  // server-side callback to accept the tenant invitation.
+  const redirectUrl = new URL("/auth/accept-invitation", appUrl);
   redirectUrl.searchParams.set("next", "/leads");
   return redirectUrl.toString();
 }

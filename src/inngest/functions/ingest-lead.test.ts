@@ -7,7 +7,9 @@ import { AIProviderError } from "@/lib/ai";
 
 import {
   aiEnrichmentSchema,
+  automaticEnrichmentDataClassification,
   ingestLead,
+  publicEnrichmentInput,
   safeEnrichmentError,
   toWorkflowError,
 } from "./ingest-lead";
@@ -66,5 +68,28 @@ describe("lead ingestion workflow error policy", () => {
         painPoints: ["x".repeat(501), "b", "c"],
       }),
     ).toThrow(/maximum/i);
+  });
+
+  it("keeps automatic enrichment provider input at the company/public-website level", () => {
+    const input = publicEnrichmentInput(
+      {
+        name: "Acme",
+        website: "https://acme.com",
+        industry: "Software",
+        size: "50",
+        location: "New York, NY",
+      },
+      {
+        sourceUrl: "https://acme.com",
+        markdown: "# Acme\nWe automate operations.",
+        truncated: false,
+      },
+    );
+
+    expect(input).toContain("Acme");
+    expect(input).toContain("We automate operations.");
+    expect(input).not.toContain("Primary contact");
+    expect(input).not.toContain("@example.com");
+    expect(automaticEnrichmentDataClassification).toBe("public");
   });
 });

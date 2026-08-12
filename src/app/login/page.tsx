@@ -21,6 +21,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const emailConfirmed = params.confirmed === "1";
   const workspaceAccessDisabled = params.error === "workspace_access_disabled";
   const invitationConflict = params.error === "invitation_conflict";
+  const invitationExpired = params.error === "invitation_expired";
 
   return (
     <main className="mx-auto flex w-full max-w-md items-center justify-center py-10">
@@ -50,6 +51,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {invitationConflict ? (
             <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
               This account already belongs to another organization. Contact an owner before accepting the invitation.
+            </p>
+          ) : null}
+          {invitationExpired ? (
+            <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+              This invitation is expired, revoked, or no longer available. Ask an organization owner to send a new invitation.
             </p>
           ) : null}
           <LoginForm nextPath={safeNextPath(params.next)} />

@@ -51,6 +51,7 @@ export function LeadTable<T extends { id: string }>({
   onSelect,
   pagination,
   onQueryChange,
+  queryState,
   isLoading = false,
 }: Readonly<{
   rows: T[];
@@ -61,10 +62,14 @@ export function LeadTable<T extends { id: string }>({
   onSelect?: (row: T) => void;
   pagination?: WorkbenchPageInfo;
   onQueryChange?: (query: LeadTableQuery) => void;
+  /** Initial server-side query, preserved when a list view is remounted. */
+  queryState?: Pick<LeadTableQuery, "query" | "filters">;
   isLoading?: boolean;
 }>) {
-  const [query, setQuery] = useState("");
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [query, setQuery] = useState(queryState?.query ?? "");
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(
+    () => ({ ...(queryState?.filters ?? {}) }),
+  );
   const queryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverSide = Boolean(pagination && onQueryChange);
 
@@ -188,9 +193,12 @@ export function LeadTable<T extends { id: string }>({
               filteredRows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={onSelect ? "cursor-pointer" : undefined}
+                  className={onSelect ? "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring" : undefined}
                   onClick={() => onSelect?.(row)}
                   onKeyDown={(event) => {
+                    // Row activation must not also fire when a nested link or
+                    // action button has focus (for example, a LinkedIn link).
+                    if (event.target !== event.currentTarget) return;
                     if (onSelect && (event.key === "Enter" || event.key === " ")) {
                       event.preventDefault();
                       onSelect(row);

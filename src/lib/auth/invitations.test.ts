@@ -18,13 +18,13 @@ describe("organization invitation helpers", () => {
     expect(INVITATION_LIFETIME_MS).toBe(7 * 24 * 60 * 60 * 1_000);
   });
 
-  it("builds a safe callback URL from the explicit application origin", () => {
+  it("builds an invitation-acceptance URL from the explicit application origin", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "publishable-key");
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
 
     expect(invitationRedirectUrl()).toBe(
-      "https://app.example.com/auth/callback?next=%2Fleads",
+      "https://app.example.com/auth/accept-invitation?next=%2Fleads",
     );
   });
 

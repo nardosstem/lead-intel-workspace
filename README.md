@@ -270,6 +270,13 @@ request returns to `/login/reset-password`, where the short-lived recovery
 session is verified before the new-password form is enabled. Expired, reused, or
 directly opened reset pages fail closed and ask for a new link.
 
+Supabase email invitations use a separate `/auth/accept-invitation` browser
+bridge because invitation links use an implicit-flow URL fragment rather than
+PKCE. The bridge persists the verified Auth session, the server callback
+accepts the pending organization membership, and the invitee is then sent to
+set an initial password. Configure this URL alongside `/auth/callback` in
+Supabase Authentication → URL Configuration.
+
 Always start the flow from the same origin where it will be completed. A link
 generated from `http://localhost:3000` returns to localhost; a link generated
 from the deployed Vercel URL returns to that deployed callback. Configure both
@@ -391,7 +398,8 @@ demoted. Application role changes are recorded in the tenant audit history;
 migration promotions are recorded as system entries. Invitations and email
 delivery use the Supabase Admin Auth API. Owners/admins can invite members from
 Settings; invitations expire after seven days, are audited, and are accepted
-through the PKCE callback. Configure both `SUPABASE_SERVICE_ROLE_KEY` and
+through the invitation browser bridge before the new member sets a password.
+Configure both `SUPABASE_SERVICE_ROLE_KEY` and
 `NEXT_PUBLIC_APP_URL` before using this flow. The current profile model
 intentionally supports one organization per Auth user and has no organization
 switcher; an account that already belongs to another organization cannot accept
@@ -401,8 +409,12 @@ profiles.
 Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
 returns immediately. The durable `ingest-lead` function then fetches up to five
 Apollo contacts, saves tenant-scoped records early, scrapes the company with
-Firecrawl, asks `IAIProvider` for ICP score/pain points/outreach, and saves the
-enrichment with an audit entry. Runs for the same organization/domain are
+Firecrawl, and uses only company metadata plus public website content for the
+automatic ICP/pain-point/company-outreach draft. This keeps the default free
+Gemini path functional without sending Apollo contact identities or notes.
+Contact-specific drafts remain private-data actions and require an explicitly
+approved provider configuration. The workflow saves enrichment with an audit
+entry. Runs for the same organization/domain are
 serialized, and a ten-run function-wide concurrency ceiling protects external
 provider budgets during bulk submissions; queued runs remain durable in Inngest.
 Run the Inngest Dev Server locally when testing
@@ -457,9 +469,10 @@ Gemini 2.5 Flash is the default because Google documents free input/output
 tiers, structured output, and a free Google Search grounding allowance shared
 by Flash and Flash-Lite. Quotas vary by project and are visible in Google AI
 Studio; they are not a production SLA. Free-tier content may be used to improve
-Google products, so the app treats contact enrichment as private and routes it
-to Claude unless `GEMINI_ALLOW_PRIVATE_DATA=1` is explicitly set for a reviewed
-paid project. Public news classification can use Gemini by default. See the
+Google products, so automatic ingestion and news classification stay
+public-only. Contact-specific actions remain private and route to Claude unless
+`GEMINI_ALLOW_PRIVATE_DATA=1` is explicitly set for a reviewed paid project.
+See the
 [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing), [billing and
 data policy](https://ai.google.dev/gemini-api/docs/billing), [Search grounding](https://ai.google.dev/gemini-api/docs/google-search),
 and [structured output](https://ai.google.dev/gemini-api/docs/structured-output)
