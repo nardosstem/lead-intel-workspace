@@ -28,7 +28,7 @@ test.describe("authenticated lead workbench", () => {
     await expect(page.getByLabel("Search companies…")).toBeVisible();
 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
     await expect(page.getByText("Members and access")).toBeVisible();
   });
 });
