@@ -448,6 +448,12 @@ GDELT DOC + publisher RSS
   -> audited, organization-scoped signal records
 ```
 
+Execution is checkpointed by organization, target, discovery query, article,
+scrape, AI extraction, and persistence step. A timeout or retry resumes from
+the last completed provider operation instead of replaying an entire
+organization scan or spending the same provider budget again. Firecrawl
+warnings remain visible on the scan record, while an empty scrape is non-fatal.
+
 Signals are limited to AI deployments, vendor partnerships, manual-review
 hiring, public failures, and executive automation commitments. Each persisted
 signal should retain a source URL, bounded evidence excerpt, confidence,
