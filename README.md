@@ -39,8 +39,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 DATABASE_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres?sslmode=require
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your-google-ai-studio-key
-GEMINI_MODEL=gemini-3.6-flash
-GEMINI_SEARCH_ENABLED=1
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_SEARCH_ENABLED=0
 # Keep 0 for a free-tier Gemini project; private contact data falls back to Claude.
 GEMINI_ALLOW_PRIVATE_DATA=0
 # Set either switch to 0 for an emergency provider-spend stop.
@@ -351,7 +351,7 @@ Business logic depends only on `IAIProvider`, whose typed operations are:
 `getAIProvider()` is the application composition root and `createAIProvider()`
 remains the lower-level adapter factory. `GeminiProvider` is the
 default direct API adapter when `GEMINI_API_KEY` is configured; it uses
-`gemini-3.6-flash` by default, supports Zod-backed structured output, and can
+`gemini-3.5-flash` by default, supports Zod-backed structured output, and can
 run a bounded Google Search grounding pass for public research. `ClaudeMCPProvider`
 is the fallback adapter and receives a `ClaudeMCPTransport`; it does not
 instantiate or couple features to a specific MCP SDK. Both adapters validate
@@ -382,9 +382,11 @@ and workspace preferences.
 The UI is empty-state safe when no authenticated organization profile exists;
 mutations and AI actions return actionable errors until the user is signed in.
 Set `GEMINI_API_KEY` to a server-only Google AI Studio key to use Gemini by
-default. `GEMINI_SEARCH_ENABLED=1` enables the public research grounding pass;
-the app keeps structured extraction as a separate pass for bounded provider
-usage. Free-tier Gemini projects may use prompts for product
+default. `GEMINI_SEARCH_ENABLED=1` optionally enables the public research
+grounding pass when the project has quota; it is disabled by default because
+Firecrawl supplies website reference text and RSS/GDELT remain the primary news
+sources. The app keeps structured extraction as a separate pass for bounded
+provider usage. Free-tier Gemini projects may use prompts for product
 improvement and human review, so the adapter best-effort redacts common email,
 phone, and profile identifiers from public prompts and
 `GEMINI_ALLOW_PRIVATE_DATA=0` routes private contact prompts to Claude instead.
@@ -486,8 +488,9 @@ zones and alternate news adapters without changing the signal contract.
 
 ### AI provider policy and cost
 
-Gemini 3.6 Flash is the default for current Google AI Studio keys and supports
-structured output plus the Google Search grounding path used by this workspace.
+Gemini 3.5 Flash is the default because it supports structured output reliably
+across current Google AI Studio keys. Website research first supplies public
+Firecrawl Markdown; Google Search grounding is optional and disabled by default.
 Quotas and pricing vary by project and are visible in Google AI Studio; they are
 not a production SLA. Free-tier content may be used to improve
 Google products, so automatic ingestion and news classification stay

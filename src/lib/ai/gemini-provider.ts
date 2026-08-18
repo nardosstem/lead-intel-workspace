@@ -19,7 +19,7 @@ import type {
 } from "./types";
 import type { AIWebSource } from "./types";
 
-const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_MODEL = "gemini-3.5-flash";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_INPUT_LENGTH = 30_000;
 const MAX_OUTPUT_TOKENS = 4_096;
@@ -103,8 +103,8 @@ function redactPublicText(value: string): string {
 }
 
 /**
- * Direct Gemini Developer API adapter. Gemini 3.6 Flash is the default because
- * it supports structured output and Search grounding for current API keys.
+ * Direct Gemini Developer API adapter. Gemini 3.5 Flash is the default because
+ * it supports structured output reliably across current API keys.
  * Search and structured output remain separate passes so each operation has a
  * bounded prompt and independently auditable source metadata.
  */
