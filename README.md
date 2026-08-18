@@ -39,7 +39,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 DATABASE_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres?sslmode=require
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your-google-ai-studio-key
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_SEARCH_ENABLED=0
 # Keep 0 for a free-tier Gemini project; private contact data falls back to Claude.
 GEMINI_ALLOW_PRIVATE_DATA=0
@@ -351,7 +351,7 @@ Business logic depends only on `IAIProvider`, whose typed operations are:
 `getAIProvider()` is the application composition root and `createAIProvider()`
 remains the lower-level adapter factory. `GeminiProvider` is the
 default direct API adapter when `GEMINI_API_KEY` is configured; it uses
-`gemini-3.5-flash` by default, supports Zod-backed structured output, and can
+`gemini-3.1-flash-lite` by default, supports Zod-backed structured output, and can
 run a bounded Google Search grounding pass for public research. `ClaudeMCPProvider`
 is the fallback adapter and receives a `ClaudeMCPTransport`; it does not
 instantiate or couple features to a specific MCP SDK. Both adapters validate
@@ -427,6 +427,10 @@ Apollo contacts, saves tenant-scoped records early, scrapes the company with
 Firecrawl, and uses only company metadata plus public website content for the
 automatic ICP/pain-point/company-outreach draft. This keeps the default free
 Gemini path functional without sending Apollo contact identities or notes.
+When Apollo's net-new People API Search is unavailable on a workspace plan, the
+client falls back to the zero-credit `contacts/search` endpoint for contacts
+already saved in that Apollo workspace; Apollo does not expose its entire
+net-new prospect database to every free key.
 Contact-specific drafts remain private-data actions and require an explicitly
 approved provider configuration. The workflow saves enrichment with an audit
 entry. Runs for the same organization/domain are
@@ -488,8 +492,8 @@ zones and alternate news adapters without changing the signal contract.
 
 ### AI provider policy and cost
 
-Gemini 3.5 Flash is the default because it supports structured output reliably
-across current Google AI Studio keys. Website research first supplies public
+Gemini 3.1 Flash Lite is the default because it supports structured output with
+a low free-tier footprint. Website research first supplies public
 Firecrawl Markdown; Google Search grounding is optional and disabled by default.
 Quotas and pricing vary by project and are visible in Google AI Studio; they are
 not a production SLA. Free-tier content may be used to improve
@@ -515,9 +519,11 @@ The repository contains deployable code, but autonomous production use requires
 these provider/account checks to be completed in staging or the hosting
 environment:
 
-- Apollo must provide a master key with access to `mixed_people/api_search`;
-  the current free-plan endpoint can reject ingestion before any contacts
-  exist, while bulk enrichment may consume credits per person.
+- Apollo's net-new People API Search is plan/scope dependent even though the
+  endpoint itself is zero-credit. The client falls back to the free
+  `contacts/search` endpoint for contacts already saved in the Apollo workspace;
+  bulk enrichment may consume credits per person. A paid/trial Apollo plan or a
+  separate lead source is required for guaranteed net-new contacts.
 - Firecrawl must have a production key and an allowed website-scrape budget.
 - Gemini should be configured with a Google AI Studio API key. Free-tier
   projects are suitable for public research/classification but have variable

@@ -19,7 +19,8 @@ import type {
 } from "./types";
 import type { AIWebSource } from "./types";
 
-const DEFAULT_MODEL = "gemini-3.5-flash";
+const DEFAULT_MODEL = "gemini-3.1-flash-lite";
+const RESILIENCY_MODEL = "gemini-3.1-flash-lite";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_INPUT_LENGTH = 30_000;
 const MAX_OUTPUT_TOKENS = 4_096;
@@ -32,6 +33,8 @@ type GeminiGenerateContent = (
 export type GeminiProviderOptions = Readonly<{
   apiKey: string;
   model?: string;
+  /** Optional model used only after a transient quota/provider failure. */
+  fallbackModel?: string;
   timeoutMs?: number;
   /** Free Gemini projects may use prompts for product improvement/review. */
   allowPrivateData?: boolean;
@@ -103,8 +106,8 @@ function redactPublicText(value: string): string {
 }
 
 /**
- * Direct Gemini Developer API adapter. Gemini 3.5 Flash is the default because
- * it supports structured output reliably across current API keys.
+ * Direct Gemini Developer API adapter. Gemini 3.1 Flash Lite is the default
+ * because it supports structured output with a low free-tier footprint.
  * Search and structured output remain separate passes so each operation has a
  * bounded prompt and independently auditable source metadata.
  */
@@ -112,6 +115,7 @@ export class GeminiProvider implements IAIProvider {
   readonly id = "gemini";
 
   private readonly model: string;
+  private readonly fallbackModel?: string;
   private readonly allowPrivateData: boolean;
   private readonly searchEnabled: boolean;
   private readonly generateContent: GeminiGenerateContent;
@@ -125,6 +129,8 @@ export class GeminiProvider implements IAIProvider {
     }
 
     this.model = options.model?.trim() || DEFAULT_MODEL;
+    const configuredFallback = options.fallbackModel?.trim() || RESILIENCY_MODEL;
+    this.fallbackModel = configuredFallback !== this.model ? configuredFallback : undefined;
     this.allowPrivateData = options.allowPrivateData ?? false;
     this.searchEnabled = options.searchEnabled ?? false;
 
@@ -291,13 +297,26 @@ export class GeminiProvider implements IAIProvider {
   private async generate(
     parameters: Omit<GenerateContentParameters, "model">,
   ): Promise<GenerateContentResponse> {
-    try {
-      return await this.generateContent({ model: this.model, ...parameters });
-    } catch (error) {
-      const status = statusFrom(error);
-      const suffix = status ? ` (HTTP ${status})` : "";
-      throw new AIProviderError(`Gemini API request failed${suffix}.`, this.id, error);
+    const models = [this.model, this.fallbackModel].filter(
+      (model): model is string => Boolean(model),
+    );
+    let lastError: unknown;
+    for (const [index, model] of models.entries()) {
+      try {
+        return await this.generateContent({ model, ...parameters });
+      } catch (error) {
+        lastError = error;
+        const status = statusFrom(error);
+        const shouldTryFallback = index === 0 &&
+          (status === 429 || status === 408 || (status !== undefined && status >= 500));
+        if (shouldTryFallback) continue;
+        const suffix = status ? ` (HTTP ${status})` : "";
+        throw new AIProviderError(`Gemini API request failed${suffix}.`, this.id, error);
+      }
     }
+    const status = statusFrom(lastError);
+    const suffix = status ? ` (HTTP ${status})` : "";
+    throw new AIProviderError(`Gemini API request failed${suffix}.`, this.id, lastError);
   }
 
   private wrapError(message: string, error: unknown): AIProviderError {

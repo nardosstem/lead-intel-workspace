@@ -52,6 +52,12 @@ const apolloSearchResponseSchema = z
   })
   .passthrough();
 
+const apolloContactsSearchResponseSchema = z
+  .object({
+    contacts: z.array(apolloPersonSchema).default([]),
+  })
+  .passthrough();
+
 const apolloEnrichmentResponseSchema = z
   .object({
     matches: z.array(apolloPersonSchema).default([]),
@@ -274,19 +280,33 @@ export class ApolloClient implements ApolloLeadSource {
     if (!normalizedTitles.length) {
       throw new ApolloApiError("Apollo target titles are invalid.", 400);
     }
-    const response = await this.request(
-      "/api/v1/mixed_people/api_search",
-      {
-        // Apollo's current docs call this q_organization_domains_list; retain
-        // q_organization_domains for compatibility with older API accounts.
-        q_organization_domains: [normalizedDomain],
-        q_organization_domains_list: [normalizedDomain],
-        person_titles: normalizedTitles,
-        per_page: 5,
-      },
-    );
+    try {
+      const response = await this.request(
+        "/api/v1/mixed_people/api_search",
+        {
+          // Apollo's current docs call this q_organization_domains_list; retain
+          // q_organization_domains for compatibility with older API accounts.
+          q_organization_domains: [normalizedDomain],
+          q_organization_domains_list: [normalizedDomain],
+          person_titles: normalizedTitles,
+          per_page: 5,
+        },
+      );
 
-    return apolloSearchResponseSchema.parse(response).people.slice(0, 5);
+      return apolloSearchResponseSchema.parse(response).people.slice(0, 5);
+    } catch (error) {
+      if (!(error instanceof ApolloApiError) || error.status !== 403) throw error;
+
+      // Free Apollo workspaces can search contacts already saved in their
+      // workspace even when net-new People API Search is disabled. This keeps
+      // the integration useful without pretending that a free key can access
+      // Apollo's entire prospect database.
+      const response = await this.request("/api/v1/contacts/search", {
+        q_keywords: `${normalizedDomain} ${normalizedTitles.join(" ")}`.slice(0, 500),
+        per_page: 5,
+      });
+      return apolloContactsSearchResponseSchema.parse(response).contacts.slice(0, 5);
+    }
   }
 
   async enrichContacts(contactIds: string[]): Promise<ApolloPerson[]> {
@@ -368,9 +388,18 @@ export async function ingestApolloLeads(
   const searchResults = await source.searchDomain(normalizedDomain, targetTitles);
   const searchedContactIds = searchResults.map((person) => person.id).slice(0, 5);
   const searchedIdSet = new Set(searchedContactIds);
-  const enrichedResults = (await source.enrichContacts(searchedContactIds)).filter((person) =>
-    searchedIdSet.has(person.id),
-  );
+  let enrichedResults: ApolloPerson[];
+  try {
+    enrichedResults = (await source.enrichContacts(searchedContactIds)).filter((person) =>
+      searchedIdSet.has(person.id),
+    );
+  } catch (error) {
+    // Contacts returned from the free-plan fallback may already contain the
+    // fields available to the workspace. Bulk enrichment can be credit-gated,
+    // so preserve those records rather than failing the entire domain import.
+    if (!(error instanceof ApolloApiError) || ![401, 403].includes(error.status)) throw error;
+    enrichedResults = searchResults;
+  }
   const seenContactIds = new Set<string>();
   const contacts = enrichedResults
     .map(toContactPayload)

@@ -95,6 +95,46 @@ describe("Apollo client", () => {
     });
   });
 
+  it("falls back to workspace contacts when net-new search is unavailable", async () => {
+    const paths: string[] = [];
+    const client = new ApolloClient({
+      apiKey: "apollo-test-key",
+      fetchImpl: async (input) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
+        if (path.endsWith("mixed_people/api_search")) {
+          return jsonResponse({ error: "not included on this plan" }, 403);
+        }
+        if (path.endsWith("contacts/search")) {
+          return jsonResponse({
+            contacts: [{
+              id: "saved-1",
+              name: "Saved Founder",
+              title: "Founder",
+              email: "founder@acme.com",
+              organization_name: "Acme Inc.",
+            }],
+          });
+        }
+        return jsonResponse({ matches: [] }, 403);
+      },
+    });
+
+    const result = await ingestApolloLeads("acme.com", ["Founder"], client);
+    expect(paths).toEqual([
+      "/api/v1/mixed_people/api_search",
+      "/api/v1/contacts/search",
+      "/api/v1/people/bulk_match",
+    ]);
+    expect(result.contacts).toEqual([
+      expect.objectContaining({
+        apolloId: "saved-1",
+        name: "Saved Founder",
+        email: "founder@acme.com",
+      }),
+    ]);
+  });
+
   it("drops unsafe LinkedIn URLs returned by the provider", async () => {
     const client = new ApolloClient({
       apiKey: "apollo-test-key",

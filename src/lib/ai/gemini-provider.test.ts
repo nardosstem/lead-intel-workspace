@@ -41,7 +41,7 @@ describe("GeminiProvider", () => {
       responseMimeType: "application/json",
       temperature: 0.1,
     });
-    expect(request?.model).toBe("gemini-3.5-flash");
+    expect(request?.model).toBe("gemini-3.1-flash-lite");
     expect(request?.config?.responseJsonSchema).toMatchObject({
       type: "object",
       properties: { score: { type: "number", minimum: 0, maximum: 100 } },
@@ -88,7 +88,7 @@ describe("GeminiProvider", () => {
       request = parameters;
       return response('{"summary":"ok"}');
     });
-    const provider = new GeminiProvider({ apiKey: "gemini-key", client });
+    const provider = new GeminiProvider({ apiKey: "gemini-key", model: "gemini-test-model", client });
 
     await provider.extractEntities({
       text: "Public article contact alex@example.com, +1 (212) 555-0199, https://linkedin.com/in/alex.",
@@ -119,16 +119,16 @@ describe("GeminiProvider", () => {
   });
 
   it("maps provider HTTP status into a retry-aware error", async () => {
-    const client: GeminiGenerateContent = vi.fn(async () => {
-      throw Object.assign(new Error("rate limited"), { status: 429 });
-    });
-    const provider = new GeminiProvider({ apiKey: "gemini-key", client });
+    const client: GeminiGenerateContent = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("rate limited"), { status: 429 }))
+      .mockResolvedValueOnce(response("A summary", "gemini-fallback"));
+    const provider = new GeminiProvider({ apiKey: "gemini-key", model: "gemini-test-model", client });
 
-    await expect(
-      provider.summarizeText({ text: "context", context }),
-    ).rejects.toMatchObject({
+    await expect(provider.summarizeText({ text: "context", context })).resolves.toMatchObject({
       provider: "gemini",
-      message: "Gemini API request failed (HTTP 429).",
+      model: "gemini-fallback",
+      data: "A summary",
     });
+    expect(client).toHaveBeenCalledTimes(2);
   });
 });
