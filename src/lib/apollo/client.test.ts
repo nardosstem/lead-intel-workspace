@@ -97,11 +97,13 @@ describe("Apollo client", () => {
 
   it("falls back to workspace contacts when net-new search is unavailable", async () => {
     const paths: string[] = [];
+    const bodies: Record<string, unknown>[] = [];
     const client = new ApolloClient({
       apiKey: "apollo-test-key",
-      fetchImpl: async (input) => {
+      fetchImpl: async (input, init) => {
         const path = new URL(String(input)).pathname;
         paths.push(path);
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         if (path.endsWith("mixed_people/api_search")) {
           return jsonResponse({ error: "not included on this plan" }, 403);
         }
@@ -126,6 +128,7 @@ describe("Apollo client", () => {
       "/api/v1/contacts/search",
       "/api/v1/people/bulk_match",
     ]);
+    expect(bodies[1]?.q_keywords).toBe("acme.com");
     expect(result.contacts).toEqual([
       expect.objectContaining({
         apolloId: "saved-1",

@@ -302,7 +302,10 @@ export class ApolloClient implements ApolloLeadSource {
       // the integration useful without pretending that a free key can access
       // Apollo's entire prospect database.
       const response = await this.request("/api/v1/contacts/search", {
-        q_keywords: `${normalizedDomain} ${normalizedTitles.join(" ")}`.slice(0, 500),
+        // Search by employer/domain first. Apollo treats q_keywords as a
+        // concept match, so combining several titles can exclude otherwise
+        // valid workspace contacts.
+        q_keywords: normalizedDomain,
         per_page: 5,
       });
       return apolloContactsSearchResponseSchema.parse(response).contacts.slice(0, 5);
