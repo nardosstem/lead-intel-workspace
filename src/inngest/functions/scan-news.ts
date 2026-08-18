@@ -418,7 +418,27 @@ async function discoverTargetDurably(
         });
         return { articles: articles.map(serializeArticle), warning: null };
       } catch (error) {
-        return { articles: [], warning: `GDELT ${query.signalType}: ${safeError(error)}` };
+        const gdeltWarning = `GDELT ${query.signalType}: ${safeError(error)}`;
+        // GDELT can throttle shared/serverless IPs. Google News RSS is a
+        // public, no-key fallback that preserves discovery without making the
+        // AI provider responsible for finding articles.
+        try {
+          const fallbackUrl = new URL("https://news.google.com/rss/search");
+          fallbackUrl.searchParams.set("q", query.query);
+          fallbackUrl.searchParams.set("hl", "en-US");
+          fallbackUrl.searchParams.set("gl", "US");
+          fallbackUrl.searchParams.set("ceid", "US:en");
+          const articles = await new RssClient().fetch(fallbackUrl.toString());
+          return {
+            articles: articles.map(serializeArticle),
+            warning: articles.length ? gdeltWarning : `${gdeltWarning}; Google News RSS returned no articles.`,
+          };
+        } catch (fallbackError) {
+          return {
+            articles: [],
+            warning: `${gdeltWarning}; Google News RSS: ${safeError(fallbackError)}`,
+          };
+        }
       }
     });
     candidates.push(...result.articles.map((article) => toCandidate(deserializeArticle(article), target, query.signalType)));
