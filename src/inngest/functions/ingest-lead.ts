@@ -565,7 +565,8 @@ export const ingestLead = inngest.createFunction(
       {
         // Bound provider pressure when a tenant imports many domains at once.
         // Additional runs remain durable and are queued by Inngest.
-        limit: 10,
+        // Inngest Hobby permits a maximum function concurrency of five.
+        limit: 5,
         scope: "fn",
       },
     ],

@@ -434,7 +434,8 @@ net-new prospect database to every free key.
 Contact-specific drafts remain private-data actions and require an explicitly
 approved provider configuration. The workflow saves enrichment with an audit
 entry. Runs for the same organization/domain are
-serialized, and a ten-run function-wide concurrency ceiling protects external
+serialized, and a five-run function-wide concurrency ceiling (compatible with
+the free Inngest Hobby plan) protects external
 provider budgets during bulk submissions; queued runs remain durable in Inngest.
 Run the Inngest Dev Server locally when testing
 background execution (`npx inngest-cli@latest dev -u

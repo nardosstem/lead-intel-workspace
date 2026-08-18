@@ -33,7 +33,7 @@ describe("lead ingestion workflow error policy", () => {
         scope: "fn",
       },
       {
-        limit: 10,
+        limit: 5,
         scope: "fn",
       },
     ]);
