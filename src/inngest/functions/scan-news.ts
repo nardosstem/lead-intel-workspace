@@ -29,6 +29,7 @@ import {
   canonicalizeNewsUrl,
   extractSignals,
   getGdeltClient,
+  parseRss,
   rankNewsCandidates,
   RssClient,
   toLeadSignalInsert,
@@ -49,6 +50,20 @@ const DEFAULT_LOOKBACK_DAYS = 8;
 const DEFAULT_MAX_COMPANIES = 25;
 const DEFAULT_MAX_ARTICLES_PER_COMPANY = 3;
 const MAX_MARKDOWN_FOR_SIGNAL = 1_500;
+
+async function fetchGoogleNewsRss(url: string): Promise<NewsArticle[]> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" || parsed.hostname !== "news.google.com") {
+    throw new Error("Google News fallback URL is invalid.");
+  }
+  const response = await fetch(parsed.toString(), {
+    headers: { accept: "application/rss+xml, application/xml, text/xml" },
+    signal: AbortSignal.timeout(15_000),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Google News RSS returned HTTP ${response.status}.`);
+  return parseRss(await response.text(), { sourceUrl: parsed.toString() });
+}
 
 type ScanTarget = Readonly<{
   targetId: string;
@@ -428,7 +443,7 @@ async function discoverTargetDurably(
           fallbackUrl.searchParams.set("hl", "en-US");
           fallbackUrl.searchParams.set("gl", "US");
           fallbackUrl.searchParams.set("ceid", "US:en");
-          const articles = await new RssClient().fetch(fallbackUrl.toString());
+          const articles = await fetchGoogleNewsRss(fallbackUrl.toString());
           return {
             articles: articles.map(serializeArticle),
             warning: articles.length ? gdeltWarning : `${gdeltWarning}; Google News RSS returned no articles.`,
