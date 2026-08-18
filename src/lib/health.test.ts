@@ -51,6 +51,7 @@ describe("health readiness snapshot", () => {
         databaseErrorCode: null,
         supabase: "configured",
         apollo: "configured",
+        prospeo: "missing",
         firecrawl: "configured",
         gemini: "configured",
         claudeMcp: "configured",

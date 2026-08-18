@@ -422,15 +422,17 @@ a second invitation. Owners/admins can also deactivate and reactivate existing
 profiles.
 
 Quick Add Domain sends a typed `lead.ingest.requested` event to Inngest and
-returns immediately. The durable `ingest-lead` function then fetches up to five
-Apollo contacts, saves tenant-scoped records early, scrapes the company with
+returns immediately. If `PROSPEO_API_KEY` is configured, the durable
+`ingest-lead` function uses Prospeo first for free-plan domain/title search and
+limited person enrichment; otherwise it uses Apollo. It saves tenant-scoped
+records early, scrapes the company with
 Firecrawl, and uses only company metadata plus public website content for the
 automatic ICP/pain-point/company-outreach draft. This keeps the default free
 Gemini path functional without sending Apollo contact identities or notes.
-When Apollo's net-new People API Search is unavailable on a workspace plan, the
-client falls back to the zero-credit `contacts/search` endpoint for contacts
-already saved in that Apollo workspace; Apollo does not expose its entire
-net-new prospect database to every free key.
+When Prospeo is not configured, Apollo's net-new People API Search is attempted;
+if the workspace plan rejects it, the client falls back to Apollo's
+`contacts/search` endpoint for contacts already saved in that workspace. Neither
+provider should be treated as an unlimited free source of verified contacts.
 Contact-specific drafts remain private-data actions and require an explicitly
 approved provider configuration. The workflow saves enrichment with an audit
 entry. Runs for the same organization/domain are
@@ -520,11 +522,14 @@ The repository contains deployable code, but autonomous production use requires
 these provider/account checks to be completed in staging or the hosting
 environment:
 
-- Apollo's net-new People API Search is plan/scope dependent even though the
-  endpoint itself is zero-credit. The client falls back to the free
-  `contacts/search` endpoint for contacts already saved in the Apollo workspace;
-  bulk enrichment may consume credits per person. A paid/trial Apollo plan or a
-  separate lead source is required for guaranteed net-new contacts.
+- Prospeo is the preferred free lead source when `PROSPEO_API_KEY` is set. Its
+  free plan includes limited API access and 100 credits/month; search returns
+  identities without revealed email, while enrichment consumes credits. Its
+  free API rate limits are 50 search and 50 enrich requests/day.
+- Apollo remains supported as a fallback. Its net-new People API Search is
+  plan/scope dependent even though the endpoint itself is zero-credit, and bulk
+  enrichment may consume credits per person. No provider currently guarantees
+  thousands of verified contacts at zero cost.
 - Firecrawl must have a production key and an allowed website-scrape budget.
 - Gemini should be configured with a Google AI Studio API key. Free-tier
   projects are suitable for public research/classification but have variable

@@ -3,6 +3,7 @@ export {
   ApolloClient,
   ApolloConfigurationError,
   getApolloClient,
+  getDefaultLeadSource,
   ingestApolloLeads,
   normalizeDomain,
   type ApolloClientOptions,

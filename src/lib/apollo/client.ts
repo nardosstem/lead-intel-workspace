@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { isPublicHostname } from "@/lib/domains";
+import { getProspeoClient } from "@/lib/prospeo/client";
 
 const APOLLO_BASE_URL = "https://api.apollo.io";
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -385,7 +386,7 @@ export function getApolloClient(): ApolloClient {
 export async function ingestApolloLeads(
   domain: string,
   targetTitles: string[],
-  source: ApolloLeadSource = getApolloClient(),
+  source: ApolloLeadSource = getDefaultLeadSource(),
 ): Promise<ApolloLeadBatch> {
   const normalizedDomain = normalizeDomain(domain);
   const searchResults = await source.searchDomain(normalizedDomain, targetTitles);
@@ -418,4 +419,15 @@ export async function ingestApolloLeads(
     contacts,
     searchedContactIds,
   };
+}
+
+/**
+ * Prefer the free Prospeo database when configured. Apollo remains a
+ * compatibility fallback for existing workspaces and saved contacts.
+ */
+export function getDefaultLeadSource(): ApolloLeadSource {
+  if (process.env.PROSPEO_API_KEY?.trim()) {
+    return getProspeoClient();
+  }
+  return getApolloClient();
 }

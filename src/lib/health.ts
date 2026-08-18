@@ -128,6 +128,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     databaseErrorCode: databaseCode,
     supabase: supabaseState(),
     apollo: configured(process.env.APOLLO_API_KEY),
+    prospeo: configured(process.env.PROSPEO_API_KEY),
     firecrawl: configured(process.env.FIRECRAWL_API_KEY),
     gemini: configured(process.env.GEMINI_API_KEY),
     claudeMcp: configured(process.env.CLAUDE_MCP_ENDPOINT),
@@ -143,7 +144,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
   const aiConfigured = checks.gemini === "configured" || checks.claudeMcp === "configured";
   const requiredChecks = [
     checks.supabase,
-    checks.apollo,
+    checks.apollo === "configured" || checks.prospeo === "configured" ? "configured" : "missing",
     checks.firecrawl,
     checks.inngest,
     checks.serverActions,
