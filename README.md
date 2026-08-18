@@ -533,8 +533,10 @@ environment:
   an HTTPS endpoint, with `CLAUDE_MCP_AUTH_TOKEN` set when the bridge requires
   bearer authentication.
 - Inngest must register the deployed `/api/inngest` URL and sign webhook
-  requests with `INNGEST_SIGNING_KEY`; production requests are rejected when
-  signing credentials are missing or `INNGEST_DEV` is set.
+  requests with `INNGEST_SIGNING_KEY`; the managed Vercel integration supplies
+  both production keys and resynchronizes the app after a new deployment.
+  Production requests are rejected when signing credentials are missing or
+  `INNGEST_DEV` is set.
 - Supabase Auth must allow the deployed `/auth/callback` and reset-password
   redirect URLs, and migrations/boundary checks must run against staging.
 - Configure Supabase Auth email delivery (SMTP or the hosted email provider),
