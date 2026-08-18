@@ -41,6 +41,7 @@ describe("GeminiProvider", () => {
       responseMimeType: "application/json",
       temperature: 0.1,
     });
+    expect(request?.model).toBe("gemini-3.6-flash");
     expect(request?.config?.responseJsonSchema).toMatchObject({
       type: "object",
       properties: { score: { type: "number", minimum: 0, maximum: 100 } },
